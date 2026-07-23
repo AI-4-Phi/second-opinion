@@ -174,8 +174,8 @@ K2.x `thinking` parameter); there is no bare `gpt-5.6` (only `-sol`/`-terra`/`-l
 `deepseek-chat`/`deepseek-reasoner` aliases are deprecated as of 2026-07-24 —
 use the `deepseek-v4-*` names; ignore xAI's `grok-4.20-*`, `grok-build-*`, and
 `grok-imagine-*` entries. For z.AI and MiniMax, `GET /models` on the endpoint
-host is authoritative for *your* key (2026-07-23: z.AI topped out at `glm-5.2`
-— no `glm-5.3` despite it being talked about; MiniMax at `MiniMax-M3`).
+host is authoritative for *your* key (2026-07-23: newest were `glm-5.2` and
+`MiniMax-M3`).
 
 ### z.AI and MiniMax quirks (verified 2026-07-23, live smoke tests)
 
