@@ -14,5 +14,5 @@ Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
   it builds request.json — run-request.py deliberately never reads them.
 - One home per fact: the gate, envelope statuses, and orphan-kill live in
   SKILL.md; api-reference.md covers provider specifics only. Don't duplicate.
-- strip_think() is minimax-scoped by design (only MiniMax puts CoT inside
-  message content as <think>…</think>; others use reasoning_content).
+- strip_think() is minimax-scoped by design — the verified provider behavior
+  behind that lives in its docstring in run-request.py; don't restate it here.

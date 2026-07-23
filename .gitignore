@@ -7,7 +7,7 @@ ROADMAP.md
 
 # machine-local
 .envrc
-.claude.local.md
+CLAUDE.local.md
 
 .DS_Store
 __pycache__/

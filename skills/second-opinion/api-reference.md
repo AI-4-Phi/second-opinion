@@ -213,8 +213,8 @@ host is authoritative for *your* key (2026-07-23: newest were `glm-5.2` and
   Both reviews led with the same top finding, so max effort bought latency, not
   insight. 462 s also sits only 18 s inside the short path's 480 s per-attempt
   budget — which is exactly how "Kimi always times out" happened. Use `"low"`
-  for the short path; reserve `"high"`/`"max"` for the long path. The runner
-  enforces this (see "The gate" below).
+  for the short path; reserve `"high"`/`"max"` for the long path. The runner's
+  gate enforces this (see SKILL.md "Execution model").
 - **Fixed sampling params:** `temperature=1.0`, `top_p=0.95`, `n=1`,
   `presence_penalty=0`, `frequency_penalty=0` are fixed server-side — omit them
   from the request (the standard request shape above already does).
@@ -233,10 +233,9 @@ tier, so omitting the field is safe there. **`kimi-k3` defaults to `max`**, so
 omitting it there is a max-effort call — always set it explicitly on Kimi.
 
 Raise effort for debugging, edge-case analysis, and hard problems, and note that
-a high-effort setting on a large input routinely runs 5–30 minutes. That is why
-the runner's gate refuses any `high`/`xhigh`/`max` request without `--long`,
-routing it through the main session in background (see SKILL.md "Execution
-model").
+a high-effort setting on a large input routinely runs 5–30 minutes — which is
+why the gate sends high-effort requests down the long path (rules in SKILL.md
+"Execution model").
 
 ### Flaky OpenAI 401 on large inputs (retried only for `openai`)
 
