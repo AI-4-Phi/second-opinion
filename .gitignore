@@ -1,0 +1,12 @@
+# dev-process scaffolding — never ships in the plugin
+skills/second-opinion/.dev/
+.dev/
+.remember/
+.superpowers/
+ROADMAP.md
+
+# machine-local
+.envrc
+
+.DS_Store
+__pycache__/
