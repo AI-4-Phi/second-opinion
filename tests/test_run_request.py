@@ -183,8 +183,9 @@ class RetryableTests(unittest.TestCase):
     def test_flaky_401_retried_only_for_openai(self):
         detail = "You have Insufficient Permissions for this operation"
         self.assertTrue(mod.retryable("auth", detail, "openai"))
-        for provider in ("kimi", "deepseek", "xai", "gemini"):
-            self.assertFalse(mod.retryable("auth", detail, provider), provider)
+        for provider in mod.PROVIDERS:  # every non-openai backend, present and future
+            if provider != "openai":
+                self.assertFalse(mod.retryable("auth", detail, provider), provider)
 
     def test_genuine_openai_auth_error_not_retried(self):
         self.assertFalse(mod.retryable("auth", "Incorrect API key provided", "openai"))
@@ -213,6 +214,25 @@ class ExtractionTests(unittest.TestCase):
         text, _ = mod.sse_delta("gemini", {"candidates": [{"content": {"parts": [
             {"text": "x", "thought": True}, {"text": "y"}]}}]})
         self.assertEqual(text, "y")
+
+
+class StripThinkTests(unittest.TestCase):
+    def test_no_tags_passes_through(self):
+        self.assertEqual(mod.strip_think("plain review"), "plain review")
+
+    def test_single_block_removed(self):
+        self.assertEqual(mod.strip_think("<think>reasoning</think>\nanswer"),
+                         "answer")
+
+    def test_multiple_blocks_removed(self):
+        self.assertEqual(
+            mod.strip_think("<think>a</think>one<think>b</think>two"), "onetwo")
+
+    def test_unterminated_block_drops_the_rest(self):
+        self.assertEqual(mod.strip_think("intro<think>cut mid-thou"), "intro")
+
+    def test_all_reasoning_becomes_empty(self):
+        self.assertEqual(mod.strip_think("<think>only thoughts"), "")
 
 
 class BackoffTests(unittest.TestCase):
@@ -415,6 +435,25 @@ class EnvelopeTests(unittest.TestCase):
         sent = _Handler.requests[0][1]
         self.assertIs(sent["stream"], True)
         self.assertEqual(sent["stream_options"], {"include_usage": True})
+
+    def test_minimax_think_block_stripped_across_chunks(self):
+        # MiniMax-M3 interleaves chain of thought as <think>...</think> inside
+        # delta.content, with tags split across SSE events
+        url = self.start_server(lambda h: h.send_sse([
+            {"choices": [{"delta": {"content": "<th"}}]},
+            {"choices": [{"delta": {"content": "ink>step 1... step 2...</think>"}}]},
+            {"choices": [{"delta": {"content": "\nthe actual review"}}],
+             "usage": {"total_tokens": 12}},
+            "[DONE]"]))
+        req = self.write_request({"model": "MiniMax-M3"})
+        with self.patch_provider("minimax", url):
+            envelope, code = run_main(["minimax", req, self.base],
+                                      {"MINIMAX_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["chars"], len("the actual review"))
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "the actual review")
 
     def test_gemini_streaming_rewrites_url(self):
         url = self.start_server(lambda h: h.send_sse([

@@ -2,7 +2,7 @@
 
 A [Claude Code](https://claude.com/claude-code) plugin that gets a second
 opinion on Claude's work from an external model — Kimi, Gemini, OpenAI,
-DeepSeek, or xAI — via their REST APIs. Reviews code, plans, drafts,
+DeepSeek, xAI, GLM (z.AI), or MiniMax — via their REST APIs. Reviews code, plans, drafts,
 arguments, or any other work product; Claude reads the review and remains the
 decision-maker.
 
@@ -16,8 +16,8 @@ outside check.
 ## ⚠️ Where your content goes
 
 **The content you ask to have reviewed is sent to the third-party provider you
-route to** (Moonshot AI, Google, OpenAI, DeepSeek, or xAI), under that
-provider's API data terms. Nothing leaves your machine until the skill runs,
+route to** (Moonshot AI, Google, OpenAI, DeepSeek, xAI, Z.AI, or MiniMax),
+under that provider's API data terms. Nothing leaves your machine until the skill runs,
 and each request goes to exactly one backend — but do not route confidential
 material to a provider you wouldn't paste it into directly, and check the
 provider's data-retention/training policy if that matters for your content.
@@ -48,6 +48,8 @@ orphan-cleanup uses POSIX signals and `kill`); WSL should behave like Linux.
 | OpenAI | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
 | DeepSeek | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | xAI | `XAI_API_KEY` | [console.x.ai](https://console.x.ai/) |
+| z.AI (GLM) | `ZAI_API_KEY` | [docs.z.ai](https://docs.z.ai/) |
+| MiniMax | `MINIMAX_API_KEY` | [platform.minimax.io](https://platform.minimax.io/) |
 
 Put the `export` in your shell profile (`.zshrc`, `.bashrc`, or a secrets file
 it sources) so every Claude Code session inherits it. If Claude Code is
@@ -62,7 +64,8 @@ per-review order of magnitude (2026-07 prices, a typical few-thousand-token
 review): Kimi `kimi-k3` is the priciest ($3/M input, $15/M output — usually
 cents per review); DeepSeek and Gemini Flash are near-free; Gemini
 `gemini-2.5-pro` has a free tier. Large documents at high reasoning effort
-cost proportionally more — the skill warns and routes those explicitly.
+cost proportionally more — the skill warns and routes those explicitly. z.AI
+and MiniMax pricing: see their provider docs.
 
 ## Updates
 

@@ -1,10 +1,10 @@
-# API Reference (Kimi, OpenAI, DeepSeek, xAI, Gemini)
+# API Reference (Kimi, OpenAI, DeepSeek, xAI, z.AI, MiniMax, Gemini)
 
 All backends are called through the shipped runner (stdlib Python, no deps):
 
     python3 scripts/run-request.py [--long] <provider> <request.json> <output-base> [gemini-model]
 
-- `provider`: `kimi` | `openai` | `deepseek` | `xai` | `gemini`
+- `provider`: `kimi` | `openai` | `deepseek` | `xai` | `zai` | `minimax` | `gemini`
 - Writes `<output-base>-raw.json`, `-text.md`, `-log.txt`, and `-pid.txt`.
 - `--long`: assert this is a long-path run (main session, background). Required
   for anything the gate blocks — see below.
@@ -77,7 +77,8 @@ emits `candidates[0].content.parts[].text` with no `[DONE]` sentinel.
 
 API keys (each must be exported in the environment; the runner refuses with a
 `usage_error` naming the missing var): `MOONSHOT_API_KEY`, `OPENAI_API_KEY`,
-`DEEPSEEK_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`.
+`DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `MINIMAX_API_KEY`,
+`GEMINI_API_KEY`.
 
 **Owned by SKILL.md, not repeated here** (one home per fact, so the two cannot
 drift apart): the gate's blocking conditions, the envelope's statuses and exit
@@ -98,7 +99,7 @@ the budget is too small rather than the call being unlucky — raise `MAX_TIME`
 instead of retrying. `internal` = an unexpected exception in the runner itself;
 the envelope still arrives so the caller never sees a bare traceback.
 
-## OpenAI-compatible backends (Kimi, OpenAI, DeepSeek, xAI)
+## OpenAI-compatible backends (Kimi, OpenAI, DeepSeek, xAI, z.AI, MiniMax)
 
 Endpoints (the runner knows these; listed for debugging):
 
@@ -108,6 +109,8 @@ Endpoints (the runner knows these; listed for debugging):
 | OpenAI | `https://api.openai.com/v1/chat/completions` |
 | DeepSeek | `https://api.deepseek.com/chat/completions` |
 | xAI | `https://api.x.ai/v1/chat/completions` |
+| z.AI | `https://api.z.ai/api/paas/v4/chat/completions` |
+| MiniMax | `https://api.minimax.io/v1/chat/completions` |
 
 Auth is `Authorization: Bearer $<KEY>`. Response text lives at
 `.choices[0].message.content`. All current default models are native reasoning
@@ -161,13 +164,32 @@ Verified 2026-07. To change a backend's default without editing the skill, set
 | DeepSeek | `deepseek-v4-flash` | cheapest useful review (~$0.14/M in); 1M ctx |
 | xAI | `grok-4.5` | xAI flagship; 500k ctx |
 | xAI | `grok-4.3` | 1M ctx, ~half price — long documents |
+| z.AI | `glm-5.2` | newest on this endpoint's `/models` (verified 2026-07-23) |
+| MiniMax | `MiniMax-M3` | MiniMax flagship; `<think>` quirk below |
+| MiniMax | `MiniMax-M2.7-highspeed` | faster tier |
 
 Naming traps (verified): Kimi K3 has only the one id `kimi-k3` (do not use the
 K2.x `thinking` parameter); there is no bare `gpt-5.6` (only `-sol`/`-terra`/`-luna`);
 `gpt-5.5-pro` is Responses-API-only and not wired in; DeepSeek's old
 `deepseek-chat`/`deepseek-reasoner` aliases are deprecated as of 2026-07-24 —
 use the `deepseek-v4-*` names; ignore xAI's `grok-4.20-*`, `grok-build-*`, and
-`grok-imagine-*` entries.
+`grok-imagine-*` entries. For z.AI and MiniMax, `GET /models` on the endpoint
+host is authoritative for *your* key (2026-07-23: z.AI topped out at `glm-5.2`
+— no `glm-5.3` despite it being talked about; MiniMax at `MiniMax-M3`).
+
+### z.AI and MiniMax quirks (verified 2026-07-23, live smoke tests)
+
+- Both stream fine through the runner (accept the injected `stream` +
+  `stream_options`) and reason by default (usage shows `reasoning_tokens`).
+  Small-prompt wall clock: `glm-5.2` ~15 s, `MiniMax-M3` ~5 s.
+- **MiniMax puts its chain of thought INSIDE `message.content`, wrapped in
+  `<think>...</think>`** — not in the `reasoning_content` field other backends
+  use. The runner strips those blocks for `provider == "minimax"` (tags can
+  span SSE chunks, so it strips after the join and rewrites `-text.md`). A
+  stream cut *inside* a think block therefore yields empty text, classified
+  `empty`, not `partial` — correct, since no review had arrived yet.
+- `reasoning_effort` support is unverified on both — omit the field there
+  (defaults are sane; see latencies above).
 
 ### Kimi `kimi-k3` quirks
 

@@ -1,6 +1,6 @@
 ---
 name: second-opinion
-description: Get a second opinion from Kimi, Gemini, OpenAI, DeepSeek, or xAI via API. Use when you want feedback on code, plans, documents, arguments, or any work product. Also useful when stuck debugging or wanting a different perspective.
+description: Get a second opinion from Kimi, Gemini, OpenAI, DeepSeek, xAI, GLM (z.AI), or MiniMax via API. Use when you want feedback on code, plans, documents, arguments, or any work product. Also useful when stuck debugging or wanting a different perspective.
 argument-hint: [question or topic]
 allowed-tools: Bash, Read, Glob, Grep
 context: fork
@@ -31,20 +31,22 @@ backend you route to, not from this fork. Keep the line.
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-sol` | `gpt-5.6-terra` (balanced), `gpt-5.5` (prior flagship). `gpt-5.6-luna` is tier-gated on some keys ([api-reference.md](api-reference.md)) |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-pro` | `deepseek-v4-flash` (cheapest useful review); both 1M ctx |
 | xAI | `XAI_API_KEY` | `grok-4.5` | `grok-4.3` (1M ctx, half price — long documents) |
+| z.AI | `ZAI_API_KEY` | `glm-5.2` | glm-5.x line moves fast — newest on `GET /api/paas/v4/models` wins |
+| MiniMax | `MINIMAX_API_KEY` | `MiniMax-M3` | `MiniMax-M2.7-highspeed` (faster tier) |
 
 Each backend needs its API key exported in the environment (user setup — see
 [README.md](README.md)). Table verified 2026-07; models move faster than skill
 releases, so honor per-provider overrides: if `SECOND_OPINION_<PROVIDER>_MODEL`
 is set (`SECOND_OPINION_KIMI_MODEL`, `..._GEMINI_...`, `..._OPENAI_...`,
-`..._DEEPSEEK_...`, `..._XAI_...`), use its value as that backend's default
-model instead of the table's. When an override is in play, always set
+`..._DEEPSEEK_...`, `..._XAI_...`, `..._ZAI_...`, `..._MINIMAX_...`), use its
+value as that backend's default model instead of the table's. When an override is in play, always set
 `reasoning_effort` explicitly — the runner's unset-effort gate knows only the
 models listed here.
 
 **Default:** Kimi `kimi-k3`. If `MOONSHOT_API_KEY` is unset, fall back to Gemini
 and drop `reasoning_effort` (Gemini has no such parameter). Use another backend
 when the user asks, when the default is unavailable, or for an additional
-independent perspective — five families means up to five independent opinions.
+independent perspective — seven families means up to seven independent opinions.
 
 **Always set `reasoning_effort` on `kimi-k3`.** Its server-side default is `max`,
 so omitting it costs ~460 s versus ~90 s at `"low"` on the same prompt, for no
@@ -208,7 +210,9 @@ what kind of feedback you want.
 
 Context budgets: Kimi, Gemini, DeepSeek, and `grok-4.3` handle ~1M tokens.
 OpenAI and `grok-4.5` (500k) are smaller — for very large content prefer a
-1M-context model or include only the relevant sections.
+1M-context model or include only the relevant sections. z.AI and MiniMax
+context windows are unverified here — check provider docs before sending
+anything huge.
 
 ## Evaluating Feedback
 
@@ -247,5 +251,6 @@ On a non-completed envelope:
    another attempt.
 
 Key checks: `[ -n "$MOONSHOT_API_KEY" ]`, `[ -n "$GEMINI_API_KEY" ]`,
-`[ -n "$OPENAI_API_KEY" ]`, `[ -n "$DEEPSEEK_API_KEY" ]`, `[ -n "$XAI_API_KEY" ]`.
+`[ -n "$OPENAI_API_KEY" ]`, `[ -n "$DEEPSEEK_API_KEY" ]`, `[ -n "$XAI_API_KEY" ]`,
+`[ -n "$ZAI_API_KEY" ]`, `[ -n "$MINIMAX_API_KEY" ]`.
 A `usage_error` of "`<KEY>` not set" means that backend's key is absent.

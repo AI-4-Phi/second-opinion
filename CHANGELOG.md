@@ -4,8 +4,10 @@
 
 Initial release.
 
-- Skill with five backends: Kimi (`kimi-k3`, default), Gemini, OpenAI,
-  DeepSeek, xAI.
+- Skill with seven backends: Kimi (`kimi-k3`, default), Gemini, OpenAI,
+  DeepSeek, xAI, z.AI (GLM), MiniMax.
+- MiniMax M-series `<think>` chain-of-thought blocks stripped from review
+  text (verified live on `MiniMax-M3`, 2026-07-23).
 - Streaming runner (`scripts/run-request.py`, stdlib-only) with classified
   retries, a size/effort gate against orphaned long runs, partial-output
   recovery, and a single-JSON-envelope contract.

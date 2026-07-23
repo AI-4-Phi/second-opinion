@@ -3,7 +3,7 @@
 
 Usage: run-request.py [--long] [--no-stream] <provider> <request.json>
                       <output-base> [gemini-model]
-  provider     kimi | openai | deepseek | xai | gemini
+  provider     kimi | openai | deepseek | xai | zai | minimax | gemini
   request.json full request body (for gemini: no model field — pass model as 4th arg)
   output-base  writes <base>-raw.json, <base>-text.md, <base>-log.txt, <base>-pid.txt
   --long       acknowledge this is a long-path request (see "The gate" below)
@@ -108,6 +108,8 @@ PROVIDERS = {
     "openai":   ("https://api.openai.com/v1/chat/completions",       "OPENAI_API_KEY",   "bearer"),
     "deepseek": ("https://api.deepseek.com/chat/completions",        "DEEPSEEK_API_KEY", "bearer"),
     "xai":      ("https://api.x.ai/v1/chat/completions",             "XAI_API_KEY",      "bearer"),
+    "zai":      ("https://api.z.ai/api/paas/v4/chat/completions",    "ZAI_API_KEY",      "bearer"),
+    "minimax":  ("https://api.minimax.io/v1/chat/completions",       "MINIMAX_API_KEY",  "bearer"),
     "gemini":   ("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                  "GEMINI_API_KEY", "goog"),
 }
@@ -156,6 +158,30 @@ def gate_reasons(request_obj, size):
         reasons.append(("effort", "%s defaults to reasoning_effort=max server-side "
                                   "and the request does not set one" % model))
     return reasons
+
+
+def strip_think(text):
+    """Drop <think>...</think> blocks from MiniMax M-series content.
+
+    Unlike the other backends, which carry chain of thought in a separate
+    reasoning_content/thought field the extractors already skip, MiniMax
+    interleaves it INSIDE message content wrapped in <think> tags (verified
+    2026-07-23 on MiniMax-M3). It is reasoning, not review — remove it. An
+    unterminated block (stream cut mid-thought) drops the rest: everything
+    after <think> is reasoning too.
+    """
+    out, i = [], 0
+    while True:
+        start = text.find("<think>", i)
+        if start == -1:
+            out.append(text[i:])
+            break
+        out.append(text[i:start])
+        end = text.find("</think>", start)
+        if end == -1:
+            break
+        i = end + len("</think>")
+    return "".join(out).lstrip("\n")
 
 
 def extract_text(provider, parsed):
@@ -458,6 +484,13 @@ def main():
                 if stream:
                     text, usage, stop = stream_sse(resp, provider, text_path,
                                                    logline, deadline_ts)
+                    if provider == "minimax" and "<think>" in text:
+                        # tags can span SSE chunks, so strip after the join and
+                        # rewrite the file so text_path matches the envelope
+                        text = strip_think(text)
+                        with open(text_path, "w") as f:
+                            f.write(text)
+                        logline("stripped <think> block: %d chars remain" % len(text))
                     if text:
                         kind = "completed" if stop is None else "partial"
                         logline("usage: %s" % json.dumps(usage))
@@ -522,6 +555,8 @@ def main():
 
         if status == 200 and parsed is not None:
             text = extract_text(provider, parsed)
+            if provider == "minimax":
+                text = strip_think(text)
             if text:
                 with open(text_path, "w") as f:
                     f.write(text + "\n")

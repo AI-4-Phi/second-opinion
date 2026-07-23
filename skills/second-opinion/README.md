@@ -1,8 +1,8 @@
 # Second Opinion Skill
 
 A Claude Code skill that gets feedback from external models (Kimi, Gemini,
-OpenAI, DeepSeek, or xAI) via their REST APIs on code, plans, writing, or any
-work product.
+OpenAI, DeepSeek, xAI, GLM/z.AI, or MiniMax) via their REST APIs on code,
+plans, writing, or any work product.
 
 ## Usage
 
@@ -51,7 +51,7 @@ retried.
 
 **Whatever you ask for a second opinion on — code, diffs, drafts, documents —
 is sent to the third-party provider you route to** (Moonshot, Google, OpenAI,
-DeepSeek, or xAI), under that provider's API data terms. Nothing is sent
+DeepSeek, xAI, Z.AI, or MiniMax), under that provider's API data terms. Nothing is sent
 anywhere until you invoke the skill, and only to the one backend chosen for
 that request. Don't route confidential material to a provider you wouldn't
 paste it into directly, and check your provider's data-retention/training
@@ -75,6 +75,8 @@ default models" below to adapt without waiting for one.
 | DeepSeek | `deepseek-v4-flash` | Cheapest useful review | 1M ctx; ~$0.14/M in |
 | xAI | `grok-4.5` | Independent opinion, flagship | 500k ctx; $2/$6 per M |
 | xAI | `grok-4.3` | Long documents | 1M ctx; ~half the price of 4.5 |
+| z.AI | `glm-5.2` | Independent opinion | Reasons by default; glm-5.x line moves fast — check `/models` |
+| MiniMax | `MiniMax-M3` | Fast independent opinion | Reasons by default; ~5 s on small prompts |
 
 Kimi is the default but the priciest and slowest (always reasoning); for a quick
 or cheap check reach for `deepseek-v4-flash` or `gemini-3.5-flash` instead.
@@ -86,7 +88,7 @@ Naming traps and API details: see [api-reference.md](api-reference.md).
 When a provider ships a new model, set an env var instead of editing the skill:
 
     export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,
-    export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_
+    export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
 The skill uses that value as the backend's default model. One caveat: the
 runner's protection against accidental max-effort runs knows only the models in
@@ -104,3 +106,5 @@ or a secrets file it sources). You only need keys for the backends you use:
 - **OpenAI:** `OPENAI_API_KEY` ([platform.openai.com](https://platform.openai.com/api-keys))
 - **DeepSeek:** `DEEPSEEK_API_KEY` ([platform.deepseek.com](https://platform.deepseek.com/api_keys))
 - **xAI:** `XAI_API_KEY` ([console.x.ai](https://console.x.ai/))
+- **z.AI:** `ZAI_API_KEY` ([docs.z.ai](https://docs.z.ai/))
+- **MiniMax:** `MINIMAX_API_KEY` ([platform.minimax.io](https://platform.minimax.io/))
