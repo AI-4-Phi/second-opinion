@@ -99,7 +99,7 @@ the table above, so with an override in place requests should always set
 backend you want, exported in your environment (e.g. from your shell profile
 or a secrets file it sources). You only need keys for the backends you use:
 
-- **Kimi:** `MOONSHOT_API_KEY` ([platform.kimi.ai](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart))
+- **Kimi:** `MOONSHOT_API_KEY` ([platform.kimi.ai](https://platform.kimi.ai/))
 - **Gemini:** `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey); free tier covers gemini-2.5-pro)
 - **OpenAI:** `OPENAI_API_KEY` ([platform.openai.com](https://platform.openai.com/api-keys))
 - **DeepSeek:** `DEEPSEEK_API_KEY` ([platform.deepseek.com](https://platform.deepseek.com/api_keys))

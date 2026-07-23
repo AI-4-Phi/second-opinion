@@ -29,11 +29,17 @@ From the [ai4phi marketplace](https://github.com/AI-4-Phi/plugins):
     /plugin marketplace add AI-4-Phi/plugins
     /plugin install second-opinion@ai4phi
 
+To remove it: `/plugin uninstall second-opinion@ai4phi`.
+
 ## Requirements
+
+Developed and tested on macOS and Linux. Windows is untested (the runner's
+orphan-cleanup uses POSIX signals and `kill`); WSL should behave like Linux.
 
 - `python3` — the runner is stdlib-only: no packages, no venv.
 - An API key, exported in your environment, for each backend you want (any
-  subset works; the skill falls back across configured backends):
+  subset works; when the default backend has no key, the skill routes to one
+  that does):
 
 | Backend | Env var | Get a key |
 |---|---|---|
@@ -42,6 +48,12 @@ From the [ai4phi marketplace](https://github.com/AI-4-Phi/plugins):
 | OpenAI | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
 | DeepSeek | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | xAI | `XAI_API_KEY` | [console.x.ai](https://console.x.ai/) |
+
+Put the `export` in your shell profile (`.zshrc`, `.bashrc`, or a secrets file
+it sources) so every Claude Code session inherits it. If Claude Code is
+launched from a desktop app rather than a terminal, it may not see
+shell-profile exports — start it from a terminal, or set the vars in Claude
+Code's settings (`env` in `settings.json`).
 
 ## Cost
 
@@ -70,11 +82,31 @@ the skill at it with an env var instead of waiting for an update:
 - [skills/second-opinion/SKILL.md](skills/second-opinion/SKILL.md) — the skill
   itself (what Claude follows)
 
+## Troubleshooting
+
+- **"`<PROVIDER>_API_KEY` not set"** — the key isn't in the environment Claude
+  Code runs in; see Requirements above.
+- **The skill reports FAILED with an `error_class`** — deterministic classes
+  (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`) mean the
+  request itself is wrong for that backend; transient ones (`rate_limit`,
+  `server_error`, `network`, `timeout`) are worth retrying. Details and
+  measured provider behavior:
+  [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
+- **A reply of `STATUS: NOT-RUN` is not an error** — large or high-reasoning
+  requests are deliberately handed back for the main session to run in the
+  background.
+- **Sanity-check the runner itself** by running the unit tests below (no
+  network, no keys needed).
+
 ## Development
 
 Unit tests for the runner (gate, error classification, envelope contract):
 
     python3 -m unittest discover -s tests -v
+
+The tests talk to a local HTTP server on `127.0.0.1`. Behind a corporate
+proxy, make sure loopback is excluded (`export no_proxy=127.0.0.1`), or
+`urllib` will route the test traffic into the proxy.
 
 ## License
 

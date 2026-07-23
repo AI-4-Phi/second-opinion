@@ -16,6 +16,8 @@ import importlib.util
 import io
 import json
 import os
+import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -30,11 +32,14 @@ spec = importlib.util.spec_from_file_location("run_request", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
-# Env vars the runner reads; cleared before every main() invocation so the
-# host machine's real keys and settings can never leak into a test.
-RUNNER_ENV = ["MAX_TIME", "DEADLINE", "ATTEMPTS", "MOONSHOT_API_KEY",
-              "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "XAI_API_KEY",
-              "GEMINI_API_KEY"]
+# Env vars that could influence a run; cleared before every main() invocation
+# so the host machine's real keys and settings can never leak into a test.
+# Derived from PROVIDERS so new backends are scrubbed automatically. The
+# SECOND_OPINION_*_MODEL overrides are honored by the *skill* layer (when it
+# builds request.json), not by the runner — scrubbed anyway, defensively.
+RUNNER_ENV = (["MAX_TIME", "DEADLINE", "ATTEMPTS"]
+              + [key_env for _, key_env, _ in mod.PROVIDERS.values()]
+              + ["SECOND_OPINION_%s_MODEL" % p.upper() for p in mod.PROVIDERS])
 
 
 def run_main(argv, env=None):
@@ -71,7 +76,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             parsed = None
         type(self).requests.append((self.path, parsed))
-        type(self).respond(self)
+        try:
+            type(self).respond(self)
+        except OSError:
+            pass  # client gave up (timeout tests) — not a test failure
 
     def send_json(self, status, obj):
         raw = json.dumps(obj).encode()
@@ -259,7 +267,13 @@ class EnvelopeTests(unittest.TestCase):
         _Handler.requests = []
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
+
+        def stop():
+            server.shutdown()
+            server.server_close()  # joins handler threads (block_on_close), so
+            # no handler can still be mutating _Handler.* when the next test
+            # rebinds those class attributes
+        self.addCleanup(stop)
         return "http://127.0.0.1:%d" % server.server_address[1]
 
     def patch_provider(self, provider, url):
@@ -286,6 +300,12 @@ class EnvelopeTests(unittest.TestCase):
     def test_missing_request_file(self):
         self.assert_usage_error(["kimi", os.path.join(self.dir.name, "nope.json"),
                                  self.base], detail_contains="missing or empty")
+
+    def test_empty_request_file(self):
+        path = os.path.join(self.dir.name, "empty.json")
+        open(path, "w").close()
+        self.assert_usage_error(["kimi", path, self.base],
+                                detail_contains="missing or empty")
 
     def test_request_must_be_json_object(self):
         path = os.path.join(self.dir.name, "request.json")
@@ -327,19 +347,29 @@ class EnvelopeTests(unittest.TestCase):
         self.assertIn("trim the prompt", envelope["detail"])
         self.assertNotIn("reasoning_effort", envelope["detail"])
 
-    def test_gate_refuses_high_effort_and_kimi_unset_effort(self):
-        for body in ({"model": "gpt-5.6-sol", "reasoning_effort": "high"},
-                     {"model": "kimi-k3"}):
-            req = self.write_request(body)
-            envelope = self.assert_usage_error(
-                ["kimi", req, self.base], detail_contains="long-path request refused")
-            self.assertIn('set reasoning_effort to "low"', envelope["detail"])
+    def test_gate_refuses_high_effort(self):
+        # provider/key match the request body, so this refusal can only be the
+        # gate — not a later provider or key check reached in a different order
+        req = self.write_request({"model": "gpt-5.6-sol", "reasoning_effort": "high"})
+        envelope = self.assert_usage_error(
+            ["openai", req, self.base], {"OPENAI_API_KEY": "k"},
+            detail_contains="long-path request refused")
+        self.assertIn('set reasoning_effort to "low"', envelope["detail"])
+
+    def test_gate_refuses_kimi_unset_effort(self):
+        req = self.write_request({"model": "kimi-k3"})
+        envelope = self.assert_usage_error(
+            ["kimi", req, self.base], {"MOONSHOT_API_KEY": "k"},
+            detail_contains="long-path request refused")
+        self.assertIn('set reasoning_effort to "low"', envelope["detail"])
 
     def test_long_flag_overrides_gate(self):
         req = self.write_request({"model": "kimi-k3"})  # unset effort would block
-        # passes the gate, then fails on the (absent) key — proving --long worked
-        self.assert_usage_error(["--long", "kimi", req, self.base],
-                                detail_contains="MOONSHOT_API_KEY not set")
+        # passes the gate, then fails on the (absent) key — indirect but
+        # sufficient proof that --long disabled the gate
+        envelope = self.assert_usage_error(["--long", "kimi", req, self.base],
+                                           detail_contains="MOONSHOT_API_KEY not set")
+        self.assertNotIn("long-path request refused", envelope["detail"])
 
     # --- completed / partial / failed against a live local server ---
 
@@ -358,6 +388,7 @@ class EnvelopeTests(unittest.TestCase):
             self.assertIn(key, envelope)
         self.assertEqual(envelope["model"], "gpt-5.6-terra")
         self.assertEqual(envelope["usage"], {"total_tokens": 9})
+        self.assertEqual(envelope["chars"], len("the review"))
         with open(envelope["text_path"]) as f:
             self.assertEqual(f.read(), "the review\n")
         # The pid file (the orphan-kill mechanism) must have been written with
@@ -407,8 +438,8 @@ class EnvelopeTests(unittest.TestCase):
     def test_partial_when_stream_is_cut(self):
         def respond(h):
             h.send_sse([{"choices": [{"delta": {"content": "three findings..."}}]}])
-            time.sleep(1.5)  # exceed the deadline before any more data
-            h.send_sse([])   # connection then goes away mid-stream
+            time.sleep(3)   # well past the 1 s deadline, so a loaded machine
+            h.send_sse([])  # cannot deliver this before the runner gives up
         url = self.start_server(respond)
         req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
         with self.patch_provider("kimi", url):
@@ -454,6 +485,95 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(envelope["status"], "completed")
         self.assertEqual(envelope["attempts"], 2)
         self.assertEqual(state["calls"], 2)
+
+    def test_transient_errors_to_exhaustion(self):
+        url = self.start_server(
+            lambda h: h.send_json(500, {"error": {"message": "still down"}}))
+        req = self.write_request({"model": "gpt-5.6-terra", "reasoning_effort": "low"})
+        with self.patch_provider("openai", url), \
+                mock.patch.object(mod.time, "sleep"):
+            envelope, code = run_main(["--no-stream", "openai", req, self.base],
+                                      {"OPENAI_API_KEY": "k", "ATTEMPTS": "2"})
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["status"], "failed")
+        self.assertEqual(envelope["error_class"], "server_error")
+        self.assertEqual(envelope["attempts"], 2)
+        self.assertEqual(len(_Handler.requests), 2)
+
+    def test_network_error_envelope(self):
+        # a port that was just bound and closed — nothing is listening
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        req = self.write_request({"model": "gpt-5.6-terra", "reasoning_effort": "low"})
+        with self.patch_provider("openai", "http://127.0.0.1:%d/v1" % port):
+            envelope, code = run_main(["openai", req, self.base],
+                                      {"OPENAI_API_KEY": "k", "ATTEMPTS": "1"})
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["status"], "failed")
+        self.assertEqual(envelope["error_class"], "network")
+
+    def test_timeout_budget_not_retried(self):
+        def respond(h):
+            time.sleep(2)  # never answer within MAX_TIME
+            h.send_json(200, openai_completion("too late"))
+        url = self.start_server(respond)
+        req = self.write_request({"model": "gpt-5.6-terra", "reasoning_effort": "low"})
+        with self.patch_provider("openai", url):
+            envelope, code = run_main(["openai", req, self.base],
+                                      {"OPENAI_API_KEY": "k", "MAX_TIME": "0.5",
+                                       "ATTEMPTS": "4"})
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["status"], "failed")
+        self.assertEqual(envelope["error_class"], "timeout_budget")
+        self.assertEqual(envelope["attempts"], 1)  # deterministic — one attempt
+        self.assertIn("larger MAX_TIME", envelope["detail"])
+
+    def test_gemini_no_stream_uses_plain_endpoint(self):
+        url = self.start_server(lambda h: h.send_json(200, {
+            "candidates": [{"content": {"parts": [{"text": "review"}]}}],
+            "usageMetadata": {"totalTokenCount": 4}}))
+        req = self.write_request({"contents": []})
+        tmpl = url + "/v1beta/models/{model}:generateContent"
+        with self.patch_provider("gemini", tmpl):
+            envelope, code = run_main(
+                ["--no-stream", "gemini", req, self.base, "gemini-2.5-pro"],
+                {"GEMINI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["chars"], len("review"))
+        path = _Handler.requests[0][0]
+        self.assertIn(":generateContent", path)
+        self.assertNotIn("streamGenerateContent", path)
+        self.assertNotIn("alt=sse", path)
+
+    def test_pid_file_removed_on_clean_exit(self):
+        # The orphan-kill contract needs a real process exit (atexit), so run
+        # the runner as an actual child, pointing its provider at our server.
+        url = self.start_server(
+            lambda h: h.send_json(200, openai_completion("done")))
+        req = self.write_request({"model": "gpt-5.6-terra", "reasoning_effort": "low"})
+        driver = (
+            "import importlib.util, sys\n"
+            "script, url, req, base = sys.argv[1:5]\n"
+            "spec = importlib.util.spec_from_file_location('rr', script)\n"
+            "m = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(m)\n"
+            "m.PROVIDERS['openai'] = (url, 'OPENAI_API_KEY', 'bearer')\n"
+            "sys.argv = ['run-request.py', '--no-stream', 'openai', req, base]\n"
+            "m.main()\n")
+        env = {k: v for k, v in os.environ.items() if k not in RUNNER_ENV}
+        env["OPENAI_API_KEY"] = "k"
+        proc = subprocess.run(
+            [sys.executable, "-c", driver, os.path.abspath(SCRIPT), url,
+             req, self.base],
+            capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        envelope = json.loads(proc.stdout)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertFalse(os.path.exists(self.base + "-pid.txt"),
+                         "pid file must be removed on clean exit")
 
     def test_failed_rerun_clears_stale_text(self):
         url = self.start_server(
