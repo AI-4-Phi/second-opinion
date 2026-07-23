@@ -98,6 +98,16 @@ the skill at it with an env var instead of waiting for an update:
 - **A reply of `STATUS: NOT-RUN` is not an error** — large or high-reasoning
   requests are deliberately handed back for the main session to run in the
   background.
+- **"No task found with ID: second-opinion-second-opinion" (non-Anthropic
+  driver only)** — this plugin targets Claude Code running on Anthropic models.
+  The skill runs as a forked background task, and on a standard Anthropic driver
+  its result is delivered back to the main session automatically. If you point
+  Claude Code at a non-Anthropic model endpoint (`ANTHROPIC_BASE_URL`, e.g. a
+  Kimi/Moonshot-backed setup), that harness may not surface the forked skill's
+  completion to the parent — so the main session can error trying to poll for it.
+  The review still ran and is on disk: read the `review-text.md` the skill wrote
+  under its work dir (`.../second-opinion-<slug>/review-text.md`). This affects
+  any forked skill under such a setup, not just this one.
 - **Sanity-check the runner itself** by running the unit tests below (no
   network, no keys needed).
 
