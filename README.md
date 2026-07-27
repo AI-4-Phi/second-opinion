@@ -108,6 +108,20 @@ the skill at it with an env var instead of waiting for an update:
   The review still ran and is on disk: read the `review-text.md` the skill wrote
   under its work dir (`.../second-opinion-<slug>/review-text.md`). This affects
   any forked skill under such a setup, not just this one.
+- **A forked review returns a question, or `STATUS: FAILED — no target
+  supplied`, instead of a review** — the target argument never reached the
+  forked skill, so it had nothing to review. This is an upstream argument-delivery
+  failure (the harness didn't pass the invocation's `args` into the fork), not
+  the runner — nothing was sent to any backend. Re-invoking may work; if it keeps
+  happening, skip the fork and drive the runner from the main session directly:
+  build a `request.json` and run
+  `<runner> <provider> <request.json> <out>` (add `--long` for large or
+  high-effort requests). If you installed from the marketplace, `<runner>` is
+  `<claude-config-dir>/plugins/cache/ai4phi/second-opinion/<version>/skills/second-opinion/scripts/run-request.py`;
+  from a clone it is `skills/second-opinion/scripts/run-request.py`. The request
+  shape and the short/long gate are in
+  [SKILL.md](skills/second-opinion/SKILL.md). This affects any forked skill that
+  takes an argument, not just this one.
 - **Sanity-check the runner itself** by running the unit tests below (no
   network, no keys needed).
 
