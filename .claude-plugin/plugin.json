@@ -1,7 +1,7 @@
 {
   "name": "second-opinion",
   "description": "Get a second opinion from Kimi, Gemini, OpenAI, DeepSeek, xAI, GLM (z.AI), or MiniMax via API. Feedback on code, plans, documents, arguments, or any work product.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "Johannes Himmelreich" },
   "homepage": "https://github.com/AI-4-Phi/second-opinion",
   "repository": "https://github.com/AI-4-Phi/second-opinion",
