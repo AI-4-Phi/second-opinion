@@ -123,9 +123,20 @@ unretried under `ATTEMPTS=1` and may succeed on another try. Say which you have.
 ## Workflow
 
 1. Identify the target: what file, diff, or document to review.
-   - If `$ARGUMENTS` names a file or topic, use that.
-   - If the conversation makes the target unambiguous (e.g. user just wrote code), use that.
-   - **If unclear, ask** — do NOT default to `git diff` or the newest-changed file.
+   - If `$ARGUMENTS` names a file or topic, use that — for a fork this is
+     normally the only input channel.
+   - If the surrounding context makes the target unambiguous (e.g. user just
+     wrote code), use that.
+   - **If `$ARGUMENTS` is empty and nothing makes the target unambiguous, do NOT
+     ask and do NOT guess — return `STATUS: FAILED — no target supplied`** (see
+     the final-message contract). This skill always runs as a fork, so a
+     clarifying question has no user to answer it and is an unrecoverable dead
+     end; guessing a target (or defaulting to `git diff` / the newest-changed
+     file) is worse still — reviewing the wrong thing, or redoing finished work,
+     reads as success. A `FAILED` envelope is something the main session can
+     detect and route around. (Empty `$ARGUMENTS` in a fork is an upstream
+     delivery failure, not your logic — see README troubleshooting for the
+     direct-runner fallback.)
    - Read the target and inline its content; no backend reads local files.
 2. Choose backend and model (tables above).
 3. `WORKDIR=<session scratchpad>/second-opinion-<slug>` (`mkdir -p`).
@@ -139,7 +150,7 @@ unretried under `ATTEMPTS=1` and may succeed on another try. Say which you have.
 ## Final-message contract (mandatory)
 
 The fork's final message is the ONLY thing that survives it. Use one of these
-four templates. "Running", "waiting", and "monitoring" are banned — a fork cannot
+templates. "Running", "waiting", and "monitoring" are banned — a fork cannot
 truthfully say them about any process.
 
     STATUS: COMPLETED
@@ -162,6 +173,13 @@ truthfully say them about any process.
     log: <the envelope's log_path>
     <deterministic or transient (see the envelope table), and what you tried. If
      you switched backends and one worked, report COMPLETED naming that backend.>
+
+    STATUS: FAILED — no target supplied
+    No `$ARGUMENTS` reached this fork and nothing in context identified something
+    to review. Nothing was sent to any backend.
+    MAIN SESSION: re-invoke with the target in `args`. If a forked invocation
+      keeps arriving empty, skip the fork and drive scripts/run-request.py
+      yourself (README troubleshooting).
 
     STATUS: NOT-RUN (long review — must be executed by the main session)
     request: <WORKDIR>/request.json (<size>, model <model>, reasoning_effort <value>)
