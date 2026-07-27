@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 — 2026-07
+
+- A forked review that receives no target now returns
+  `STATUS: FAILED — no target supplied` instead of asking a clarifying question
+  a fork has no user to answer. Empty `$ARGUMENTS` inside a fork is an upstream
+  argument-delivery failure, observed once and not reproducible since; nothing
+  is sent to any backend when it happens.
+- README troubleshooting: how to recognize that failure, and how to drive
+  `run-request.py` from the main session as a fallback (runner path given for
+  both marketplace and clone installs).
+- Documentation only — the runner is unchanged.
+
 ## 0.1.0 — 2026-07
 
 Initial release.
