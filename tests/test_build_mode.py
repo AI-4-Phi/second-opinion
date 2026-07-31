@@ -599,5 +599,36 @@ class MakedirsTests(_BuildFixture, unittest.TestCase):
             os.path.join(self.dir.name, "review-envelope.json")))
 
 
+class BuildEndToEndTests(_BuildFixture, unittest.TestCase):
+    def test_streaming_end_to_end(self):
+        url = self.sse_server("the full review")
+        prompt = self.write_prompt()
+        with self.patch_provider("kimi", url):
+            out, _err, code = run_main_io(
+                ["--prompt-file", prompt, "kimi", self.base],
+                {"MOONSHOT_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        envelope = json.loads(out)
+        self.assertEqual(envelope["status"], "completed")
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "the full review")
+        with open(self.base + "-envelope.json") as f:
+            self.assertEqual(f.read(), out)  # byte-equal, newline included
+
+    def test_no_stream_end_to_end(self):
+        url = self.json_server("the full review")
+        prompt = self.write_prompt()
+        with self.patch_provider("openai", url):
+            out, _err, code = run_main_io(
+                ["--no-stream", "--prompt-file", prompt, "openai", self.base],
+                {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        envelope = json.loads(out)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertNotIn("stream", self.sent())
+        with open(self.base + "-envelope.json") as f:
+            self.assertEqual(f.read(), out)
+
+
 if __name__ == "__main__":
     unittest.main()

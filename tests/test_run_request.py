@@ -35,8 +35,9 @@ spec.loader.exec_module(mod)
 # Env vars that could influence a run; cleared before every main() invocation
 # so the host machine's real keys and settings can never leak into a test.
 # Derived from PROVIDERS so new backends are scrubbed automatically. The
-# SECOND_OPINION_*_MODEL overrides are honored by the *skill* layer (when it
-# builds request.json), not by the runner — scrubbed anyway, defensively.
+# SECOND_OPINION_*_MODEL overrides are honored by the runner's BUILD mode
+# (model resolution); legacy mode never reads them. Scrubbed so the host
+# machine's real overrides can never leak into either mode's tests.
 RUNNER_ENV = (["MAX_TIME", "DEADLINE", "ATTEMPTS"]
               + [key_env for _, key_env, _ in mod.PROVIDERS.values()]
               + ["SECOND_OPINION_%s_MODEL" % p.upper() for p in mod.PROVIDERS])
