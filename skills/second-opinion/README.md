@@ -15,37 +15,38 @@ The skill defaults to Kimi (`kimi-k3`). To use another backend, mention it:
     /second-opinion from Grok: review these changes
     /second-opinion with Gemini 2.5-pro: review all the files in this dir
 
-## How it executes (short vs long reviews)
+## How it executes
 
-Small requests run synchronously and hand back the finished review's file path.
-Large requests (32 KB+ prompt) or deep-reasoning requests (`reasoning_effort:
-high`/`xhigh`/`max`) take longer than a forked skill can survive, so the skill
-only *prepares* them: it returns `STATUS: NOT-RUN` plus the exact
-`scripts/run-request.py` command for the main session to run in the background,
-and the paths that run's output will land at. This is by design — a "NOT-RUN"
-reply is the skill working correctly, not failing.
+The skill always *prepares* a review — it never runs one itself. It writes the
+composed prompt to `prompt.txt` and the exact `scripts/run-request.py` launch
+command to `launch.txt` in a scratch work directory, then returns
+`STATUS: PREPARED` with that command. This is by design, not a fallback: every
+review takes this path, regardless of size or reasoning effort — there is no
+synchronous shortcut.
 
-Either way the review lands on disk and Claude reads it from there; the skill
-does not paste it back through the fork or summarize it, because a summary of a
-technical review loses the specific objections that make it worth having. The
-fork itself runs on Sonnet regardless of your session's model — it only does
-plumbing, and the review's quality comes from the backend you route to, not
-from it.
+The main session launches the returned command as a background task. The
+review then runs as a plain background process, outside the skill — the fork
+that prepared it has already ended by the time the review finishes, so it
+cannot report back. The envelope file (`review-envelope.json`) appearing in
+the work directory is the completion signal: its appearance is what the main
+session watches for, and Claude reads the review from disk once it's there.
+The skill does not paste the review back through the fork or summarize it,
+because a summary of a technical review loses the specific objections that
+make it worth having. The fork itself runs on Sonnet regardless of your
+session's model — it only does plumbing, and the review's quality comes from
+the backend you route to, not from it.
 
 Responses stream, which mostly matters when something goes wrong. A review cut
 short by a timeout still leaves everything it had written on disk, reported as
-`STATUS: PARTIAL` — the completed findings are valid and Claude will act on
-them, ignoring any final finding that stops mid-sentence. If it looks like more
-was coming, the right move is to fix what you already know about and *then* ask
-again, so the next review sees the corrected version instead of repeating
-itself.
+status `partial` in the envelope — see the root README's ["Using a partial
+review"](../../README.md#using-a-partial-review) for how to act on one.
 
 The runner (`scripts/run-request.py`, stdlib Python — no dependencies) prints a
-single JSON envelope describing the outcome (`completed`/`failed`/`usage_error`)
-so the agent gets a typed result, and it classifies errors: deterministic
-failures (bad model, genuine auth error, malformed request) fail fast, while
-transient ones (rate limits, 5xx, network, empty bodies, OpenAI's flaky 401) are
-retried.
+single JSON envelope describing the outcome (`completed`/`partial`/`failed`/
+`usage_error`) so the agent gets a typed result, and it classifies errors:
+deterministic failures (bad model, genuine auth error, malformed request) fail
+fast, while transient ones (rate limits, 5xx, network, empty bodies, OpenAI's
+flaky 401) are retried.
 
 ## Where your content goes
 
@@ -90,10 +91,16 @@ When a provider ships a new model, set an env var instead of editing the skill:
     export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,
     export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
-The skill uses that value as the backend's default model. One caveat: the
-runner's protection against accidental max-effort runs knows only the models in
-the table above, so with an override in place requests should always set
-`reasoning_effort` explicitly (the skill does this for Kimi already).
+The override is honored by the runner at launch, in build mode — not by the
+skill. When the skill composes a launch command it only ever adds `--model`
+if the user asked for a specific non-default model; an env-var override takes
+effect on its own, with no `--model` flag needed. One caveat: the runner's
+protection against accidental max-effort runs is model-keyed, not
+provider-keyed, so it doesn't follow an override to a different model — the
+skill already passes `--effort` explicitly for kimi/openai/deepseek/xai, so
+this mainly matters when driving the runner by hand: set
+`--effort`/`reasoning_effort` yourself whenever you override a default model.
+Details: [api-reference.md](api-reference.md#model-and-effort-resolution-build-mode).
 
 ## Requirements
 

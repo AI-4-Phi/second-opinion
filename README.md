@@ -13,6 +13,11 @@ decision-maker.
 Claude also invokes it proactively when a plan or piece of work is worth an
 outside check.
 
+Every invocation runs the same way: the skill *prepares* the review — it
+writes the prompt and hands the session an exact command to launch it as a
+background task — rather than running it itself. The review then runs outside
+the skill, lands on disk once it finishes, and Claude reads it from there.
+
 ## ⚠️ Where your content goes
 
 **The content you ask to have reviewed is sent to the third-party provider you
@@ -64,8 +69,9 @@ per-review order of magnitude (2026-07 prices, a typical few-thousand-token
 review): Kimi `kimi-k3` is the priciest ($3/M input, $15/M output — usually
 cents per review); DeepSeek and Gemini Flash are near-free; Gemini
 `gemini-2.5-pro` has a free tier. Large documents at high reasoning effort
-cost proportionally more — the skill warns and routes those explicitly. z.AI
-and MiniMax pricing: see their provider docs.
+cost proportionally more. Every review runs as one background API call,
+bounded by a 90-minute deadline. z.AI and MiniMax pricing: see their provider
+docs.
 
 ## Updates
 
@@ -73,13 +79,21 @@ Provider model lineups change faster than plugin releases. The shipped
 defaults are verified as of 2026-07; when a provider ships a new model, point
 the skill at it with an env var instead of waiting for an update:
 
-    export SECOND_OPINION_KIMI_MODEL=...     # likewise _GEMINI_, _OPENAI_,
-                                             # _DEEPSEEK_, _XAI_
+    export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,
+    export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
+
+The override is honored by the runner at launch (build mode). One caveat: the
+runner's unset-effort protection (which defaults `kimi-k3` to `"low"`) is
+keyed to the model ids it ships with, not to whatever a
+`SECOND_OPINION_*_MODEL` override points at — the skill already passes
+`--effort` explicitly for kimi/openai/deepseek/xai, so this mainly matters if
+you drive the runner by hand: set `--effort`/`reasoning_effort` yourself
+whenever you override a default model.
 
 ## Documentation
 
 - [skills/second-opinion/README.md](skills/second-opinion/README.md) — usage,
-  model table, how long reviews execute
+  model table, how reviews execute
 - [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md)
   — endpoints, request shapes, measured provider behavior
 - [skills/second-opinion/SKILL.md](skills/second-opinion/SKILL.md) — the skill
@@ -91,50 +105,98 @@ the skill at it with an env var instead of waiting for an update:
 
 - **"`<PROVIDER>_API_KEY` not set"** — the key isn't in the environment Claude
   Code runs in; see Requirements above.
-- **The skill reports FAILED with an `error_class`** — deterministic classes
-  (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`) mean the
-  request itself is wrong for that backend; transient ones (`rate_limit`,
-  `server_error`, `network`, `timeout`) are worth retrying. Details and
-  measured provider behavior:
+- **The review's envelope reports `failed` with an `error_class`** — the fork
+  never runs a review itself, so this arrives only via `review-envelope.json`
+  (or the background task's own output), never as a fork reply. Deterministic
+  classes (`bad_request`, `not_found`, genuine
+  `auth`, `timeout_budget`) mean the request itself is wrong for that backend;
+  transient ones (`rate_limit`, `server_error`, `network`, `timeout`) are worth
+  retrying. Details and measured provider behavior:
   [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
-- **A reply of `STATUS: NOT-RUN` is not an error** — large or high-reasoning
-  requests are deliberately handed back for the main session to run in the
-  background.
+- **A reply of `STATUS: PREPARED` is not an error** — every review is
+  deliberately handed back for the main session to launch in the background;
+  the skill itself never runs one. (Breaking change from 0.1.x: earlier
+  releases replied `STATUS: NOT-RUN`, and only for large or high-reasoning
+  requests — small ones ran synchronously inside the fork. 0.2.0 removed that
+  split; every review now takes the same PREPARED path.)
 - **The skill replies that it is "waiting for" or "monitoring" a background
-  review** — it cannot be, and no completion notification will arrive: the fork
-  ended when it sent that message. The runner it started keeps going and does
-  finish, so the outcome is on disk — look in the session's scratchpad directory
-  for `second-opinion-*/review-envelope.json`, which says how the run ended and
-  where its text is, with `review-text.md` beside it. Observed once on 0.1.1
-  (2026-07-30); 0.1.2 removes the copy-pasteable background-launch line that
-  invited it, has each handoff name the artifacts its run leaves, and writes that
-  envelope file so a lost notification no longer loses the result.
+  review** — it cannot be: a forked skill's final message is its last word,
+  and the fork never launches anything itself — it only prepares
+  `prompt.txt` and `launch.txt` and hands the command to the main session. If
+  the main session already launched the run, the outcome lands on disk once it
+  finishes — look in the session's scratchpad directory for
+  `second-opinion-*/review-envelope.json`, which says how the run ended and
+  where its text is, with `review-text.md` beside it. If it was never launched
+  (the fork ended before the command ran, or the command was lost), the work
+  is still recoverable: `prompt.txt` and `launch.txt` sit in that same
+  directory — `launch.txt` holds the exact command, byte-identical to what the
+  PREPARED message showed.
 - **"No task found with ID: second-opinion-second-opinion" (non-Anthropic
   driver only)** — this plugin targets Claude Code running on Anthropic models.
   The skill runs as a forked background task, and on a standard Anthropic driver
-  its result is delivered back to the main session automatically. If you point
-  Claude Code at a non-Anthropic model endpoint (`ANTHROPIC_BASE_URL`, e.g. a
-  Kimi/Moonshot-backed setup), that harness may not surface the forked skill's
-  completion to the parent — so the main session can error trying to poll for it.
-  The review still ran and is on disk: read the `review-text.md` the skill wrote
-  under its work dir (`.../second-opinion-<slug>/review-text.md`). This affects
-  any forked skill under such a setup, not just this one.
+  its PREPARED handoff is delivered back to the main session automatically. If
+  you point Claude Code at a non-Anthropic model endpoint (`ANTHROPIC_BASE_URL`,
+  e.g. a Kimi/Moonshot-backed setup), that harness may not surface the forked
+  skill's completion to the parent — so the main session can error trying to
+  poll for it, never seeing the handoff, and nothing gets launched. The fork's
+  work is still on disk: `.../second-opinion-<slug>/launch.txt` holds the exact
+  command it prepared — run it yourself as a background Bash task (see the
+  empty-args recipe below for the shape), and `review-envelope.json` appearing
+  in that same directory is the completion signal. This affects any forked
+  skill under such a setup, not just this one.
 - **A forked review returns a question, or `STATUS: FAILED — no target
   supplied`, instead of a review** — the target argument never reached the
   forked skill, so it had nothing to review. This is an upstream argument-delivery
   failure (the harness didn't pass the invocation's `args` into the fork), not
   the runner — nothing was sent to any backend. Re-invoking may work; if it keeps
-  happening, skip the fork and drive the runner from the main session directly:
-  build a `request.json` and run
-  `<runner> <provider> <request.json> <out>` (add `--long` for large or
-  high-effort requests). If you installed from the marketplace, `<runner>` is
-  `<claude-config-dir>/plugins/cache/ai4phi/second-opinion/<version>/skills/second-opinion/scripts/run-request.py`;
-  from a clone it is `skills/second-opinion/scripts/run-request.py`. The request
-  shape and the short/long gate are in
-  [SKILL.md](skills/second-opinion/SKILL.md). This affects any forked skill that
-  takes an argument, not just this one.
+  happening, skip the fork and drive the runner yourself:
+  1. Write the review prompt (your question + the file contents, inlined) to
+     `<dir>/prompt.txt`, where `<dir>` is
+     `<scratchpad>/second-opinion-<slug>`.
+  2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes
+     and orphans the runner):
+
+         rm -f <dir>/review-envelope.json <dir>/review-text.md && \
+         DEADLINE=5400 python3 <runner> --long \
+           --prompt-file <dir>/prompt.txt --effort low kimi <dir>/review
+
+     (swap the provider argument to reroute — kimi/openai/deepseek/xai take
+     `--effort`, gemini/zai/minimax do not; add `--model <id>` for a specific
+     model). If you installed from the marketplace, `<runner>` is
+     `<claude-config-dir>/plugins/cache/ai4phi/second-opinion/<version>/skills/second-opinion/scripts/run-request.py`;
+     from a clone it is `skills/second-opinion/scripts/run-request.py`.
+  3. `<dir>/review-envelope.json` appearing IS the completion signal — read
+     its status first; the review lands at `review-text.md`. Full envelope,
+     status, and gate details:
+     [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
+
+  This affects any forked skill that takes an argument, not just this one.
 - **Sanity-check the runner itself** by running the unit tests below (no
   network, no keys needed).
+
+## Using a partial review
+
+A run interrupted mid-stream — by a timeout or otherwise — still leaves real
+work on disk, reported as status `partial` in the envelope: normally N
+complete findings plus one cut mid-sentence. Use it rather than discarding it:
+
+- **The completed findings are valid.** Act on them.
+- **Never act on the truncated final item.** A halted sentence can reverse
+  itself in the half that never arrived ("a race condition — *unless* the
+  caller holds the lock").
+- **Never present a partial as complete** when relaying it onward.
+- **Enough?** If the completed findings are self-contained and give you
+  concrete changes, act on them and move on.
+- **More expected?** (It announced eight problems and you have three, or it
+  was cut inside the central argument.) Fix what you already know about
+  first, then re-run — the next review then sees the corrected state instead
+  of repeating findings you already fixed. Re-running immediately just pays
+  twice for the same N.
+- **Repeated truncation at the same place means the target is too big** —
+  split it into smaller reviews.
+
+Envelope, status, and gate details:
+[skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
 
 ## Development
 
