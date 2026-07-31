@@ -20,6 +20,12 @@ concrete, zero-edit command for the main session to run.
   RemoteTrigger) from the fork, so it structurally cannot run the runner,
   spawn a subprocess, or hand the job to another agent — E1-verified
   2026-07-31.
+- **Breaking: no more silent key-fallback.** The 0.1.x fork pre-checked API
+  keys and silently fell back to Gemini when the default backend's key was
+  missing. The 0.2.0 fork cannot check keys — it has no shell — so a
+  missing-key default-routed review now costs one failed launch (a typed
+  `usage_error` naming the key and the resolved provider/model, seconds
+  after launch) plus a reroute.
 - **Added: runner build mode.** `run-request.py --prompt-file <path> [--model
   <id>] [--effort <level>] <provider> <output-base>` has the runner compose
   the API request body itself from a plain prompt file, instead of requiring

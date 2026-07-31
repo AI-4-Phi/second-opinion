@@ -147,19 +147,20 @@ FAILED and why.
       reproduced or summarized here — treat it as one data point, not authority.
       partial → real output cut early: completed findings are valid; discard the
       final truncated one (it can reverse in the half that never arrived).
-      failed → error_class bad_request/not_found/auth/timeout_budget are final —
-      fix what detail names; rate_limit/server_error/network/timeout/empty may
-      succeed on relaunch. The prompt file is reusable as-is; the provider
-      argument is swappable (adjust --effort per the swap: kimi/openai/deepseek/
-      xai take it, gemini/zai/minimax do not).
+      failed → error_class bad_request/not_found/genuine auth/timeout_budget are
+      final — fix what detail names;
+      rate_limit/server_error/network/timeout/empty may succeed on relaunch. The
+      prompt file is reusable as-is; the provider argument is swappable (adjust
+      --effort per the swap: kimi/openai/deepseek/xai take it,
+      gemini/zai/minimax do not).
       usage_error → nothing was sent; detail names the fix.
     If no envelope appears and the process is gone, review-log.txt says what
       happened. To cancel: kill "$(cat <WORKDIR>/review-pid.txt)"
 
 The `[--model <id>]` / `[--effort <value>]` brackets show the template's
 general form only — the message you emit contains a concrete command with the
-brackets resolved: each flag present or absent, never literal. The same
-concrete command goes into `launch.txt`, byte-identical.
+brackets resolved: each flag present or absent, never literal. `launch.txt`
+gets the same concrete command (whitespace/line-wrapping aside).
 
     STATUS: FAILED — <no target supplied | cannot read target: <path> | cannot
       write prompt file: <error> | diff review requested but no diff file supplied>
@@ -181,10 +182,12 @@ concrete command goes into `launch.txt`, byte-identical.
       3. <dir>/review-envelope.json appearing IS the completion signal — read
          its status first; the review lands at review-text.md.
 
-In BOTH templates, `<skill-dir>` is emitted resolved to this skill's real
-absolute directory (your skill-load context names it), and `<WORKDIR>`/`<dir>`
-to the real absolute work directory — a message containing a literal
-placeholder is a broken deliverable.
+In both templates, emit `<skill-dir>` resolved to this skill's real absolute
+directory (your skill-load context names it). In PREPARED, emit `<WORKDIR>`
+resolved to the real absolute work directory — a PREPARED message containing
+a literal placeholder is a broken deliverable. The FAILED recipe's `<dir>`,
+`<slug>`, and `<that file>` stay generic by design: no work directory exists
+yet, and the main session fills them in.
 
 **Relay the path, never the content.** The review is on disk once run; the
 main session reads it there. Copying or summarizing it through a message can
