@@ -346,7 +346,7 @@ def gate_reasons(request_obj, size):
     """
     reasons = []
     if size >= GATE_BYTES:
-        reasons.append(("size", "request.json is %d bytes (>= %d)" % (size, GATE_BYTES)))
+        reasons.append(("size", "request body is %d bytes (>= %d)" % (size, GATE_BYTES)))
     model = request_obj.get("model") or ""
     effort = request_obj.get("reasoning_effort")
     if isinstance(effort, str) and effort.lower() in HIGH_EFFORTS:
@@ -514,26 +514,47 @@ def backoff(attempt, retry_after, logline, deadline_ts):
 def main():
     global ENVELOPE_PATH
     ENVELOPE_PATH = None  # never inherit a previous in-process run's path
-    flags = {"--long", "--no-stream"}
-    args = [a for a in sys.argv[1:] if a not in flags]
-    long_ok = "--long" in sys.argv[1:]
-    stream = "--no-stream" not in sys.argv[1:]
-    if len(args) < 3:
-        usage_error("usage: run-request.py [--long] [--no-stream] <provider> "
-                    "<request.json> <output-base> [gemini-model]")
-    provider, request_path, base = args[0], args[1], args[2]
-    gemini_model = args[3] if len(args) > 3 else None
+    opts, args = parse_args(sys.argv[1:])
+    long_ok = opts.get("--long", False)
+    stream = not opts.get("--no-stream", False)
+    build = "--prompt-file" in opts
+    if not build and ("--model" in opts or "--effort" in opts):
+        usage_error("--model/--effort are build-mode flags — they require "
+                    "--prompt-file (legacy mode's model lives in request.json "
+                    "/ the 4th argument)\n" + USAGE)
+    if build:
+        if len(args) != 2:
+            usage_error("build mode takes exactly two positional arguments: "
+                        "<provider> <output-base> (got %d)\n%s"
+                        % (len(args), USAGE))
+        provider, base = args
+        request_path, gemini_model = None, None
+    else:
+        if len(args) < 3:
+            usage_error(USAGE)
+        provider, request_path, base = args[0], args[1], args[2]
+        gemini_model = args[3] if len(args) > 3 else None
 
-    # Claim the envelope path before anything that can fail, and drop a previous
-    # run's envelope right here rather than with the other stale outputs further
-    # down: everything between the two points can exit early, and a stale
+    # Claim the envelope path only now that the invocation's SHAPE has
+    # identified output-base unambiguously, and drop a previous run's envelope
+    # right here rather than with the other stale outputs further down:
+    # everything between the two points can exit early, and a stale
     # "completed" envelope outliving a fresh usage_error is exactly the false
-    # signal this file exists to prevent.
+    # signal this file exists to prevent. (A malformed-shape invocation never
+    # reaches this line — parse_args and the checks above die first.)
     ENVELOPE_PATH = base + "-envelope.json"
     try:
         os.remove(ENVELOPE_PATH)
     except OSError:
         pass
+
+    # New in 0.2.0, both modes: the runner must not fail on a not-yet-created
+    # output directory. `or "."` guards a bare relative base
+    # (dirname("review") == ""), which works today and must keep working.
+    try:
+        os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
+    except OSError as e:
+        usage_error("cannot create output directory for %r (%s)" % (base, e))
 
     if provider not in PROVIDERS:
         usage_error("unknown provider: %s (use %s)" % (provider, "|".join(PROVIDERS)))
@@ -562,19 +583,28 @@ def main():
     raw_path, text_path, log_path = base + "-raw.json", base + "-text.md", base + "-log.txt"
     pid_path = base + "-pid.txt"
 
-    if not os.path.isfile(request_path) or os.path.getsize(request_path) == 0:
-        usage_error("request file missing or empty: " + request_path)
-    try:
-        with open(request_path, "rb") as f:
-            body = f.read()
-        request_obj = json.loads(body)
-    except OSError as e:
-        usage_error("cannot read request file %s (%s)" % (request_path, e))
-    except ValueError as e:
-        usage_error("request file is not valid JSON: %s (%s)" % (request_path, e))
-    if not isinstance(request_obj, dict):
-        usage_error("request file must contain a JSON object, got %s"
-                    % type(request_obj).__name__)
+    if build:
+        model = resolve_model(provider, opts.get("--model"))
+        effort = resolve_effort(provider, model, opts.get("--effort"))
+        prompt = read_prompt_file(opts["--prompt-file"])
+        request_obj = build_request(provider, model, effort, prompt)
+        if provider == "gemini":
+            gemini_model = model
+        body = json.dumps(request_obj).encode()
+    else:
+        if not os.path.isfile(request_path) or os.path.getsize(request_path) == 0:
+            usage_error("request file missing or empty: " + request_path)
+        try:
+            with open(request_path, "rb") as f:
+                body = f.read()
+            request_obj = json.loads(body)
+        except OSError as e:
+            usage_error("cannot read request file %s (%s)" % (request_path, e))
+        except ValueError as e:
+            usage_error("request file is not valid JSON: %s (%s)" % (request_path, e))
+        if not isinstance(request_obj, dict):
+            usage_error("request file must contain a JSON object, got %s"
+                        % type(request_obj).__name__)
 
     request_bytes = len(body)  # gate size, before any stream fields are injected
     blocked = gate_reasons(request_obj, request_bytes)
@@ -585,16 +615,34 @@ def main():
             remedies.append("trim the prompt below %d bytes" % GATE_BYTES)
         if "effort" in kinds:
             remedies.append('set reasoning_effort to "low"')
+        origin = (" (provider %s, model %s)" % (provider, model)) if build else ""
         usage_error(
-            "long-path request refused: %s. This cannot run synchronously in a "
-            "skill fork — the Bash tool caps at 10 minutes and a killed fork "
-            "orphans this process. Hand it to the main session to run in "
-            "background, which must pass --long. To use the short path instead, "
-            "%s." % ("; ".join(text for _, text in blocked), " and ".join(remedies)))
+            "long-path request refused: %s. A request this large or this slow "
+            "can run well past 10 minutes; launch it as a background task "
+            "(not a foreground tool call) and pass --long to acknowledge, or "
+            "%s to keep it quick.%s"
+            % ("; ".join(text for _, text in blocked), " and ".join(remedies),
+               origin))
 
     key = os.environ.get(key_env)
     if not key:
+        if build:
+            usage_error("%s not set (provider %s, model %s)"
+                        % (key_env, provider, model))
         usage_error("%s not set" % key_env)
+
+    if build:
+        # Persist the built body so a failed run can be re-driven by hand:
+        # verbatim through legacy mode for the OpenAI-compatible providers; a
+        # gemini re-run appends the resolved model as the 4th argument (it is
+        # in the log's run header, and in the usage_error details on the paths
+        # that never open the log). Written only after the gate and key checks
+        # pass — prompt.txt is the re-runnable artifact for refused runs.
+        try:
+            with open(base + "-request.json", "wb") as f:
+                f.write(body)
+        except OSError as e:
+            usage_error("cannot write %s (%s)" % (base + "-request.json", e))
 
     if provider == "gemini":
         if not gemini_model:
