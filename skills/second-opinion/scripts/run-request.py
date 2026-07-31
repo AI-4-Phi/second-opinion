@@ -158,6 +158,35 @@ HIGH_EFFORTS = {"high", "xhigh", "max"}
 # kimi-k3 reports reasoning_efforts.default_effort == "max".
 MAX_EFFORT_BY_DEFAULT = {"kimi-k3"}
 
+# --- build mode (0.2.0) ---
+# The runner assembles the request itself from a prompt file; the fork no
+# longer hand-builds request.json. Single authoritative home for per-provider
+# default models (SKILL.md keeps routing guidance and alternatives only).
+# Verified 2026-07 against each provider's GET /models. Override without a
+# release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
+# legacy mode never reads env for its model.
+DEFAULT_MODELS = {
+    "kimi":     "kimi-k3",
+    "openai":   "gpt-5.6-sol",
+    "deepseek": "deepseek-v4-pro",
+    "xai":      "grok-4.5",
+    "zai":      "glm-5.2",
+    "minimax":  "MiniMax-M3",
+    "gemini":   "gemini-3.1-pro-preview",
+}
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+SYSTEM_PROMPT = ("You are an expert reviewer providing a second opinion. "
+                 "Be specific, cite evidence, and explain your reasoning.")
+
+BOOL_FLAGS = {"--long", "--no-stream"}
+VALUE_FLAGS = {"--prompt-file", "--model", "--effort"}
+USAGE = ("usage: run-request.py [--long] [--no-stream] --prompt-file <path> "
+         "[--model <id>] [--effort <level>] <provider> <output-base>\n"
+         "   or: run-request.py [--long] [--no-stream] <provider> "
+         "<request.json> <output-base> [gemini-model]")
+# build mode first — it is the documented interface on every surface (USAGE,
+# module docstring, api-reference.md); legacy is the escape hatch.
+
 
 def write_envelope_file(path, payload):
     """Persist the serialized envelope beside the other outputs, atomically.
@@ -211,6 +240,100 @@ def emit(envelope, exit_code):
 def usage_error(msg):
     sys.stderr.write("run-request.py: " + msg + "\n")
     emit({"status": "usage_error", "detail": msg}, 2)
+
+
+def parse_args(argv):
+    """Strict argv scan; shape errors are usage_errors raised HERE, while
+    ENVELOPE_PATH is still None — so a malformed invocation can never remove a
+    previous run's envelope at an output base it merely guessed. argparse is
+    deliberately not used: it prints its own message and exits without an
+    envelope, breaking the one-envelope contract."""
+    opts, positionals = {}, []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in BOOL_FLAGS:
+            opts[arg] = True
+        elif arg in VALUE_FLAGS:
+            if arg in opts:
+                usage_error("%s given more than once" % arg)
+            value = argv[i + 1] if i + 1 < len(argv) else None
+            if not value or value.startswith("--"):
+                usage_error("%s requires a value\n%s" % (arg, USAGE))
+            opts[arg] = value
+            i += 1
+        elif arg.startswith("--"):
+            usage_error("unknown flag %s\n%s" % (arg, USAGE))
+        else:
+            positionals.append(arg)
+        i += 1
+    return opts, positionals
+
+
+def resolve_model(provider, flag_value):
+    """Build-mode model precedence: --model, then SECOND_OPINION_<P>_MODEL
+    (empty/whitespace treated as unset), then DEFAULT_MODELS. Legacy mode
+    never calls this — its model lives in request.json / the 4th argument."""
+    if flag_value:
+        return flag_value
+    env_value = os.environ.get(
+        "SECOND_OPINION_%s_MODEL" % provider.upper(), "").strip()
+    if env_value:
+        return env_value
+    return DEFAULT_MODELS[provider]
+
+
+def resolve_effort(provider, model, flag_value):
+    """Explicit --effort wins (validated case-insensitively, lowercased into
+    the body). Absent + resolved model in MAX_EFFORT_BY_DEFAULT injects "low"
+    — the old 'always set reasoning_effort on kimi-k3' prose rule, now code,
+    keyed to exactly the condition that makes an unset effort dangerous (an
+    override to an unknown model is NOT injected; the documented caveat — set
+    effort explicitly when overriding — covers that). Absent otherwise: omit
+    the field. Per-provider tier validity (kimi has no "medium") is
+    deliberately not checked here: the provider's own 400 surfaces as
+    bad_request, keeping decay-prone tables out of code."""
+    if flag_value is not None:
+        if provider == "gemini":
+            usage_error("gemini has no reasoning_effort parameter — omit "
+                        "--effort")
+        effort = flag_value.lower()
+        if effort not in EFFORT_LEVELS:
+            usage_error("--effort must be one of %s (got %r)"
+                        % ("|".join(EFFORT_LEVELS), flag_value))
+        return effort
+    if model in MAX_EFFORT_BY_DEFAULT:
+        return "low"
+    return None
+
+
+def read_prompt_file(path):
+    """Mirrors the legacy request-file checks: missing/empty/unreadable and
+    (new) non-UTF-8 are usage errors."""
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        usage_error("prompt file missing or empty: " + path)
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        usage_error("cannot read prompt file %s (%s)" % (path, e))
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as e:
+        usage_error("prompt file is not valid UTF-8: %s (%s)" % (path, e))
+
+
+def build_request(provider, model, effort, prompt):
+    """Field-for-field what the 0.1.x documented jq template produced."""
+    if provider == "gemini":
+        return {"systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "contents": [{"parts": [{"text": prompt}]}]}
+    obj = {"model": model}
+    if effort is not None:
+        obj["reasoning_effort"] = effort
+    obj["messages"] = [{"role": "system", "content": SYSTEM_PROMPT},
+                       {"role": "user", "content": prompt}]
+    return obj
 
 
 def gate_reasons(request_obj, size):
