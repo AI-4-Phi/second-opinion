@@ -5,7 +5,8 @@ All backends are called through the shipped runner (stdlib Python, no deps):
     python3 scripts/run-request.py [--long] <provider> <request.json> <output-base> [gemini-model]
 
 - `provider`: `kimi` | `openai` | `deepseek` | `xai` | `zai` | `minimax` | `gemini`
-- Writes `<output-base>-raw.json`, `-text.md`, `-log.txt`, and `-pid.txt`.
+- Writes `<output-base>-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`, and
+  `-envelope.json` (see "Reading a run's outcome from disk" below).
 - `--long`: assert this is a long-path run (main session, background). Required
   for anything the gate blocks — see below.
 
@@ -25,8 +26,9 @@ runner always returns an envelope before the caller gives up.
 
 Short path (synchronous, in-fork): `MAX_TIME=420 DEADLINE=450 ATTEMPTS=1`.
 One attempt, because a retry cannot fit in the fork's budget anyway.
-Long path (main session, background): `--long DEADLINE=5400 ATTEMPTS=1`, leaving
-`MAX_TIME` at its 1800 default.
+Long path (main session, background): `--long DEADLINE=5400`, leaving `MAX_TIME`
+(1800) and `ATTEMPTS` (4) at their defaults — 90 minutes has room for the retries
+the fork's 10-minute budget did not, and `DEADLINE` still bounds the total.
 
 **Do not shrink `MAX_TIME` to "detect stalls".** It looks like an idle timeout
 once streaming is on, but it also governs the silent wait before the first byte,
@@ -37,6 +39,28 @@ four identical 300 s timeouts and ~20 wasted minutes. The runner now classifies
 that case as `timeout_budget` and refuses to retry it.
 
 Retries: `ATTEMPT*15`-second backoff (429 honors a capped `Retry-After`).
+
+## Reading a run's outcome from disk
+
+Stdout reaches only the process that launched the runner, so a launcher that dies
+first takes the outcome with it. The same envelope is therefore written to
+`<output-base>-envelope.json`, atomically, at the moment a terminal outcome is
+reached and before stdout — so a reader who finds the process gone still finds the
+outcome. If you hold the stdout envelope, it is authoritative for the process you
+launched; the file is for readers who lost that channel.
+
+| On disk, for a known output base | What it means |
+|---|---|
+| Fresh `-envelope.json` | A terminal outcome was reached (not necessarily that the process has exited — the file lands just before stdout). Read `status` **first**: `completed`/`partial` carry `text_path` and `chars`, `failed` carries `error_class`, `usage_error` means **no request was attempted**. |
+| No envelope, `-pid.txt` present | Probably still running. Evidence, not proof: confirm with `kill -0 <pid>`, and treat a pid file older than `DEADLINE` as stale — `SIGKILL` leaves it behind. |
+| No envelope, no `-pid.txt` | Outcome unknown: never started, the pid write failed, the run was terminated (SIGTERM/SIGINT/SIGKILL all exit without reaching the envelope), or the envelope write failed. `-log.txt` usually says which, but a run can die before it opens. |
+
+The file describes the **latest invocation** at that output base — a previous run's
+envelope is removed as soon as a new run knows its base, and `-text.md` from an
+earlier run can still be sitting there, which is why `status` comes first. Use a
+fresh output base per invocation if you need to tie an envelope to a specific run.
+The write is best-effort: if it fails, stdout and the exit code are unaffected and a
+note goes to stderr.
 
 ## Streaming (default) and partial output
 

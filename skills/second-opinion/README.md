@@ -21,9 +21,9 @@ Small requests run synchronously and hand back the finished review's file path.
 Large requests (32 KB+ prompt) or deep-reasoning requests (`reasoning_effort:
 high`/`xhigh`/`max`) take longer than a forked skill can survive, so the skill
 only *prepares* them: it returns `STATUS: NOT-RUN` plus the exact
-`scripts/run-request.py` command for the main session to run in the background.
-This is by design — a "NOT-RUN" reply is the skill working correctly, not
-failing.
+`scripts/run-request.py` command for the main session to run in the background,
+and the paths that run's output will land at. This is by design — a "NOT-RUN"
+reply is the skill working correctly, not failing.
 
 Either way the review lands on disk and Claude reads it from there; the skill
 does not paste it back through the fork or summarize it, because a summary of a

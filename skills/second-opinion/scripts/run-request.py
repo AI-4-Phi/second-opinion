@@ -5,7 +5,8 @@ Usage: run-request.py [--long] [--no-stream] <provider> <request.json>
                       <output-base> [gemini-model]
   provider     kimi | openai | deepseek | xai | zai | minimax | gemini
   request.json full request body (for gemini: no model field — pass model as 4th arg)
-  output-base  writes <base>-raw.json, <base>-text.md, <base>-log.txt, <base>-pid.txt
+  output-base  writes <base>-raw.json, <base>-text.md, <base>-log.txt,
+               <base>-pid.txt, <base>-envelope.json
   --long       acknowledge this is a long-path request (see "The gate" below)
   --no-stream  disable streaming (see "Streaming" below); rarely wanted
 
@@ -54,6 +55,30 @@ gets a typed result instead of parsing the log file:
 
 Exit codes: 0 = text extracted; 1 = failed after retries; 2 = usage/input error;
 3 = partial text on disk (the review was cut short but is readable).
+
+The same envelope is also written to <base>-envelope.json
+-------------------------------------------------------
+Stdout has exactly one consumer: whoever launched this process. When that reader
+dies first, the outcome dies with it — a completed review can sit on disk with
+nothing saying it finished (observed 2026-07-30: a skill fork backgrounded a long
+run, returned, and the finished review went unread for ~45 minutes). So the
+envelope is persisted next to the other outputs, written atomically at the moment
+a terminal outcome is reached and before stdout, so a reader that finds the
+process gone always finds the outcome:
+
+  * a fresh -envelope.json means a terminal outcome was reached (not that the
+    process has already exited — it is written just before stdout and exit);
+  * no envelope but a -pid.txt means it is probably still running (evidence, not
+    proof: confirm with kill -0, and treat a pid file older than DEADLINE as
+    stale);
+  * neither means the outcome is unknown — never started, pid write failed,
+    externally terminated, or the envelope write failed. SIGTERM/SIGINT/SIGKILL
+    all end this process WITHOUT reaching emit(), so a cancelled run leaves no
+    envelope. -log.txt usually says which, but a run can die before it opens.
+
+The file describes the LATEST invocation at that output base: a previous run's
+envelope is removed as soon as this one knows its base. Prefer a fresh base per
+invocation if you need to associate an envelope with a specific run.
 
 Streaming (default; --no-stream opts out)
 -----------------------------------------
@@ -116,6 +141,12 @@ PROVIDERS = {
 DEFAULT_ATTEMPTS = 4
 RETRY_AFTER_CAP = 120  # seconds — never wait longer than this on a Retry-After
 
+# Where to persist the envelope. Set in main() as soon as the output base is
+# known — deliberately before the request/gate/key checks, so a usage_error also
+# leaves a typed explanation on disk. None until then (and reset on every entry
+# to main(), which the in-process test suite relies on).
+ENVELOPE_PATH = None
+
 # Error classes that are worth retrying. "auth" is decided per-message below.
 RETRYABLE = {"rate_limit", "server_error", "network", "timeout", "empty", "bad_response"}
 
@@ -128,10 +159,53 @@ HIGH_EFFORTS = {"high", "xhigh", "max"}
 MAX_EFFORT_BY_DEFAULT = {"kimi-k3"}
 
 
+def write_envelope_file(path, payload):
+    """Persist the serialized envelope beside the other outputs, atomically.
+
+    Best-effort by design, like the pid file: neither the stdout contract nor the
+    exit code may depend on a writable output directory. Returns False when the
+    envelope could not be persisted, so the caller can say so on stderr.
+
+    os.replace() from a temp file in the SAME directory is what makes a polling
+    reader safe — it can never catch a half-written object.
+    """
+    if path is None:
+        return False
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            f.write(payload)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
 def emit(envelope, exit_code):
-    """Print exactly one JSON envelope on stdout, then exit."""
-    sys.stdout.write(json.dumps(envelope) + "\n")
-    sys.exit(exit_code)
+    """Persist the envelope, print it on stdout, then exit.
+
+    The stdout write is best-effort for the same reason the file is: in the case
+    this whole mechanism exists for, the reader is already gone. A BrokenPipeError
+    escaping here would reach the catch-all in cli(), which would call emit()
+    again and overwrite a truthful envelope on disk with a false "internal" one.
+    """
+    payload = json.dumps(envelope) + "\n"
+    persisted = write_envelope_file(ENVELOPE_PATH, payload)
+    try:
+        sys.stdout.write(payload)
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        pass  # dead or closed reader — the on-disk envelope is the record now
+    if not persisted and ENVELOPE_PATH is not None:
+        try:
+            sys.stderr.write("run-request.py: could not write %s\n" % ENVELOPE_PATH)
+        except (OSError, ValueError):
+            pass
+    raise SystemExit(exit_code)
 
 
 def usage_error(msg):
@@ -315,6 +389,8 @@ def backoff(attempt, retry_after, logline, deadline_ts):
 
 
 def main():
+    global ENVELOPE_PATH
+    ENVELOPE_PATH = None  # never inherit a previous in-process run's path
     flags = {"--long", "--no-stream"}
     args = [a for a in sys.argv[1:] if a not in flags]
     long_ok = "--long" in sys.argv[1:]
@@ -324,6 +400,17 @@ def main():
                     "<request.json> <output-base> [gemini-model]")
     provider, request_path, base = args[0], args[1], args[2]
     gemini_model = args[3] if len(args) > 3 else None
+
+    # Claim the envelope path before anything that can fail, and drop a previous
+    # run's envelope right here rather than with the other stale outputs further
+    # down: everything between the two points can exit early, and a stale
+    # "completed" envelope outliving a fresh usage_error is exactly the false
+    # signal this file exists to prevent.
+    ENVELOPE_PATH = base + "-envelope.json"
+    try:
+        os.remove(ENVELOPE_PATH)
+    except OSError:
+        pass
 
     if provider not in PROVIDERS:
         usage_error("unknown provider: %s (use %s)" % (provider, "|".join(PROVIDERS)))
@@ -590,10 +677,14 @@ def main():
     emit(failed, 1)
 
 
-if __name__ == "__main__":
-    # The "exactly one JSON envelope on stdout" contract must hold even when
-    # something unforeseen goes wrong; a bare traceback gives the calling agent
-    # nothing to parse and looks indistinguishable from a hang.
+def cli():
+    """Entry point: main() plus the last-resort envelope.
+
+    The "exactly one JSON envelope" contract must hold even when something
+    unforeseen goes wrong; a bare traceback gives the calling agent nothing to
+    parse and looks indistinguishable from a hang. Extracted from __main__ so the
+    catch-all is reachable from the tests.
+    """
     try:
         main()
     except SystemExit:
@@ -601,3 +692,7 @@ if __name__ == "__main__":
     except BaseException as e:  # noqa: BLE001 - deliberate catch-all
         emit({"status": "failed", "error_class": "internal",
               "detail": "%s: %s" % (type(e).__name__, e)}, 1)
+
+
+if __name__ == "__main__":
+    cli()
