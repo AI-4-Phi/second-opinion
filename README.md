@@ -108,10 +108,10 @@ whenever you override a default model.
 - **The review's envelope reports `failed` with an `error_class`** — the fork
   never runs a review itself, so this arrives only via `review-envelope.json`
   (or the background task's own output), never as a fork reply. Deterministic
-  classes (`bad_request`, `not_found`, genuine
-  `auth`, `timeout_budget`) mean the request itself is wrong for that backend;
-  transient ones (`rate_limit`, `server_error`, `network`, `timeout`) are worth
-  retrying. Details and measured provider behavior:
+  classes (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`) mean
+  the request itself is wrong for that backend; transient ones (`rate_limit`,
+  `server_error`, `network`, `timeout`) are worth retrying. Details and
+  measured provider behavior:
   [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
 - **A reply of `STATUS: PREPARED` is not an error** — every review is
   deliberately handed back for the main session to launch in the background;

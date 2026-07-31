@@ -47,8 +47,9 @@ and the envelope/gate/orphan-cleanup facts, read
   (built body,          (grows as the   (prose trace,   (the same envelope stdout
    after gate + key      stream         append-mode)     carried — the typed outcome,
    checks pass)          arrives)                        as an artifact)
-                                        review-pid.txt
-                                        (exists while the run does)
+                                        review-pid.txt   review-raw.json
+                                        (exists while    (raw HTTP response
+                                         the run does)    body)
 ```
 
 Two asymmetries in that picture explain most of the skill's rules:
@@ -68,7 +69,8 @@ each landed under their respective main session's scratchpad UUID). So a glob un
 the main session's scratchpad reaches any fork's output.
 
 The runner is given an output base (`<WORKDIR>/review`) and derives every file from
-it: `-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`, `-envelope.json`.
+it: `-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`, `-envelope.json`, and (build
+mode only) `-request.json`.
 
 ## The launch boundary
 
