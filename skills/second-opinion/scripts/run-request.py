@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """run-request.py — execute a second-opinion API request with classified retries.
 
-Usage: run-request.py [--long] [--no-stream] <provider> <request.json>
-                      <output-base> [gemini-model]
+Usage (build mode — the documented interface; the runner builds the request):
+  run-request.py [--long] [--no-stream] --prompt-file <path>
+                 [--model <id>] [--effort <level>] <provider> <output-base>
+Usage (legacy mode — bring-your-own request body):
+  run-request.py [--long] [--no-stream] <provider> <request.json>
+                 <output-base> [gemini-model]
   provider     kimi | openai | deepseek | xai | zai | minimax | gemini
-  request.json full request body (for gemini: no model field — pass model as 4th arg)
   output-base  writes <base>-raw.json, <base>-text.md, <base>-log.txt,
-               <base>-pid.txt, <base>-envelope.json
+               <base>-pid.txt, <base>-envelope.json, and (build mode)
+               <base>-request.json — the built body, re-runnable via legacy
+               mode (gemini: append the resolved model as the 4th arg)
+  --prompt-file  UTF-8 review prompt; the runner wraps it in the standard
+               system+user message shape (SYSTEM_PROMPT)
+  --model      build mode: override the model (else SECOND_OPINION_<PROVIDER>_MODEL,
+               else DEFAULT_MODELS). Legacy mode never reads that env var.
+  --effort     build mode: low|medium|high|xhigh|max (case-insensitive).
+               Omitted + resolved model in MAX_EFFORT_BY_DEFAULT -> "low" is
+               injected. gemini has no such parameter and refuses the flag.
   --long       acknowledge this is a long-path request (see "The gate" below)
   --no-stream  disable streaming (see "Streaming" below); rarely wanted
 
@@ -22,18 +34,21 @@ Env:
                caller's own timeout — retries then can never overrun it. Without
                it, 4 attempts at MAX_TIME=480 can run 33 minutes inside a Bash
                call that dies at 10.
-  ATTEMPTS     max attempts (default 4). Synchronous in-fork runs should use 1:
-               a retry cannot fit inside the fork's budget anyway.
+  ATTEMPTS     max attempts (default 4). Callers on a tight foreground budget
+               should use 1 — a retry rarely fits a short window; the
+               sanctioned background flow keeps the default.
 
 The gate — why this script may refuse to start
 ----------------------------------------------
-A long request cannot run synchronously inside a skill fork: the Bash tool caps
-at 10 minutes and a killed fork ORPHANS this process (it keeps running and
-keeps billing). So the script refuses, with a usage_error, to start a request
-that is too big or too slow for the short path unless `--long` says the caller
-knows it is on the long path (main session, background). Blocking conditions:
+The sanctioned plugin flow always launches this script as a BACKGROUND task
+with --long, so the gate never fires there; it protects DIRECT callers. A
+foreground tool call dies at 10 minutes and orphans this process (it keeps
+running and keeps billing), so the script refuses, with a usage_error, to
+start a request that is too big or too slow for a foreground call unless
+`--long` says the caller knows it is running in the background. Blocking
+conditions:
 
-  * request.json >= 32768 bytes, or
+  * the serialized request body >= 32768 bytes, or
   * reasoning_effort is high / xhigh / max, or
   * the model's own server-side default effort is the top tier and the request
     does not set reasoning_effort (currently kimi-k3, whose /v1/models entry
