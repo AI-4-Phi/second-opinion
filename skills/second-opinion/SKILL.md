@@ -72,7 +72,7 @@ main session reroutes.
 | Situation | Prefer |
 |-----------|--------|
 | General analytical review (default) | Kimi |
-| Reasoning/debugging/edge cases | Kimi at `--effort high`, or OpenAI `--model gpt-5.6-sol --effort high` |
+| Reasoning/debugging/edge cases | Kimi at `--effort high`, or OpenAI at `--effort high` |
 | File-heavy or long documents | Gemini `--model gemini-2.5-pro`, Kimi, or xAI `--model grok-4.3` (1M ctx) |
 | Fast/cheap feedback | DeepSeek `--model deepseek-v4-flash` or Gemini `--model gemini-3.5-flash` (Kimi is neither) |
 | Another independent opinion | Any unused family — different family, different blind spots |
