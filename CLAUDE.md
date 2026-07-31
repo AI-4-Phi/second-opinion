@@ -10,9 +10,13 @@ Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
   date-stamped ("verified YYYY-MM"); prefer `SECOND_OPINION_<PROVIDER>_MODEL`
   env overrides over adding model rows — each row is a claim that decays.
   Ground truth for model ids: `GET /models` on the provider endpoint.
-- The `SECOND_OPINION_*_MODEL` overrides are honored by the SKILL layer when
-  it builds request.json — run-request.py deliberately never reads them.
-- One home per fact: the gate, envelope statuses, and orphan-kill live in
-  SKILL.md; api-reference.md covers provider specifics only. Don't duplicate.
+- The `SECOND_OPINION_<PROVIDER>_MODEL` overrides are honored by the RUNNER's
+  build mode (model resolution: `--model` > env > `DEFAULT_MODELS`); legacy
+  mode deliberately never reads them, and the fork passes `--model` only for
+  explicitly requested non-default models.
+- One home per fact: the envelope statuses/exit codes, the gate's blocking
+  conditions, the reader rule, and the orphan-kill live in api-reference.md;
+  SKILL.md keeps routing and the fork contract (PREPARED/FAILED) only. Don't
+  duplicate.
 - strip_think() is minimax-scoped by design — the verified provider behavior
   behind that lives in its docstring in run-request.py; don't restate it here.
