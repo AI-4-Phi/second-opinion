@@ -1,16 +1,66 @@
 # API Reference (Kimi, OpenAI, DeepSeek, xAI, z.AI, MiniMax, Gemini)
 
-All backends are called through the shipped runner (stdlib Python, no deps):
+All backends are called through the shipped runner (stdlib Python, no deps).
 
-    python3 scripts/run-request.py [--long] <provider> <request.json> <output-base> [gemini-model]
+**Build mode — the documented interface.** The runner composes the request
+body itself from a prompt file:
+
+    python3 scripts/run-request.py [--long] [--no-stream] --prompt-file <path> [--model <id>] [--effort <level>] <provider> <output-base>
 
 - `provider`: `kimi` | `openai` | `deepseek` | `xai` | `zai` | `minimax` | `gemini`
 - Writes `<output-base>-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`, and
-  `-envelope.json` (see "Reading a run's outcome from disk" below).
-- `--long`: assert this is a long-path run (main session, background). Required
-  for anything the gate blocks — see below.
+  `-envelope.json` (see "Reading a run's outcome from disk" below); build
+  mode additionally writes `-request.json` — the body it built, kept for
+  debugging and as the exemplar body shape for driving legacy mode by hand.
+  Written only after the gate and key checks pass, so a gate-refused or
+  missing-key run leaves no `-request.json`.
+- `--long`: assert this is a long-path run (main session, background).
+  Required for anything the gate blocks — see "Envelope, gate, and orphan
+  cleanup" below.
+- `--no-stream`: disable streaming — see "Streaming" below; rarely wanted.
+- `--model` / `--effort`: see "Model and effort resolution" below.
 
-Env vars:
+**Legacy mode — the bring-your-own-body escape hatch.** Skip `--prompt-file`
+and hand the runner a pre-built request.json instead:
+
+    python3 scripts/run-request.py [--long] [--no-stream] <provider> <request.json> <output-base> [gemini-model]
+
+Legacy mode never reads `SECOND_OPINION_<PROVIDER>_MODEL` — the model comes
+entirely from what you pass in. For every OpenAI-compatible backend that means
+a `"model"` field inside request.json; **gemini is different: its
+request.json carries NO `"model"` field at all** — the model goes in the URL,
+which the runner builds from the **mandatory 4th argument**, not from the
+body (a gemini legacy call with only 3 positionals is a usage_error). Any
+build-mode run's `<base>-request.json` is the exemplar body shape for
+hand-driving legacy mode — with the old hand-built-body recipes retired (see
+"Building a request" below), it is the only body example left in this repo.
+
+## Model and effort resolution (build mode)
+
+`--model` → `SECOND_OPINION_<PROVIDER>_MODEL` (empty or whitespace-only counts
+as unset) → `DEFAULT_MODELS` in the runner — the authoritative home for
+per-provider defaults (`scripts/run-request.py`, verified 2026-07 against
+each provider's `GET /models`). Only `--prompt-file` runs resolve this way;
+legacy mode never reads the env var.
+
+`--effort` takes `low`, `medium`, `high`, `xhigh`, or `max`, case-insensitive,
+lowercased into the body before it is sent. Per-provider tier validity is
+**not** validated here — e.g. `kimi-k3` rejecting `"medium"` (see its quirks
+below) surfaces as the provider's own 400, classified `bad_request`, rather
+than as a decay-prone table baked into the runner.
+
+**Unset effort is not always neutral.** If `--effort` is omitted and the
+resolved model is in `MAX_EFFORT_BY_DEFAULT` (currently just `kimi-k3`, whose
+server-side default is `"max"`), the runner injects `"low"`. This is
+**model-keyed, not provider-keyed**: an override to some other model via
+`SECOND_OPINION_KIMI_MODEL` is not covered, so nothing is injected for it —
+set `--effort` explicitly whenever overriding a default model.
+
+`--effort` on gemini is a usage_error — gemini has no such API parameter.
+
+## Env vars
+
+Apply identically to both modes.
 
 | Var | Default | Meaning |
 |---|---|---|
@@ -24,11 +74,14 @@ actually bounds it** — set it just under the caller's own timeout. It caps eac
 attempt to the time remaining and skips a backoff that would overrun, so the
 runner always returns an envelope before the caller gives up.
 
-Short path (synchronous, in-fork): `MAX_TIME=420 DEADLINE=450 ATTEMPTS=1`.
-One attempt, because a retry cannot fit in the fork's budget anyway.
-Long path (main session, background): `--long DEADLINE=5400`, leaving `MAX_TIME`
-(1800) and `ATTEMPTS` (4) at their defaults — 90 minutes has room for the retries
-the fork's 10-minute budget did not, and `DEADLINE` still bounds the total.
+The sanctioned flow is one path, always: every plugin-launched review runs
+`--long DEADLINE=5400` as a background task, with `MAX_TIME` (1800) and
+`ATTEMPTS` (4) left at their defaults — 90 minutes of room for the retries a
+foreground call's 10-minute budget could never fit, bounded by `DEADLINE`.
+The same numbers hold when a human drives the runner directly. `--long` is
+mandatory on this path — without it the gate refuses anything it classifies
+as too big or too slow for a foreground call (see "Envelope, gate, and orphan
+cleanup" below).
 
 **Do not shrink `MAX_TIME` to "detect stalls".** It looks like an idle timeout
 once streaming is on, but it also governs the silent wait before the first byte,
@@ -90,7 +143,7 @@ bound the run with `DEADLINE`.
 **An interrupted run leaves a usable review.** Text already received is on disk.
 The runner then emits `{"status":"partial", …, "chars":N, "detail":"…"}` with
 exit code **3**. That is not a failure — it is real model output that stops
-early. Guidance on acting on it: SKILL.md § "Using a partial review".
+early. Guidance on acting on one lives in the root README.
 
 Wire details, if debugging: OpenAI-compatible backends take `stream: true` in
 the body (the runner injects it, along with `stream_options.include_usage` so
@@ -104,11 +157,49 @@ API keys (each must be exported in the environment; the runner refuses with a
 `DEEPSEEK_API_KEY`, `XAI_API_KEY`, `ZAI_API_KEY`, `MINIMAX_API_KEY`,
 `GEMINI_API_KEY`.
 
-**Owned by SKILL.md, not repeated here** (one home per fact, so the two cannot
-drift apart): the gate's blocking conditions, the envelope's statuses and exit
-codes, and how to kill an orphaned runner via `<output-base>-pid.txt`. This file
-covers provider specifics only — endpoints, request shapes, models, and measured
-behaviour.
+## Envelope, gate, and orphan cleanup
+
+This file is the authoritative home for these three facts — one home per
+fact, so they cannot drift out of sync with SKILL.md, which keeps routing and
+the fork contract only. The PREPARED template in SKILL.md's final-message
+contract carries deliberately compressed copies of the status table, the
+reader rule, and the kill line below (three copies, acknowledged); if they
+ever disagree, this file wins.
+
+**The reader rule.** Stdout is exactly one JSON envelope describing the
+outcome — parse it, never guess. The same object also lands in
+`<output-base>-envelope.json` (see "Reading a run's outcome from disk" above
+for the on-disk states before a terminal outcome is reached).
+
+| status | exit | fields |
+|---|---|---|
+| `completed` | 0 | `provider`, `model`, `http_status`, `attempts`, `usage`, `text_path`, `chars`, `log_path` |
+| `partial` | 3 | same, plus `detail` — real text on disk, cut short |
+| `failed` | 1 | `provider`, `model`, `error_class`, `http_status`, `attempts`, `detail`, `raw_path`, `log_path` |
+| `usage_error` | 2 | `detail` — bad argument, missing file, unset key, **or a gate refusal**; no request was attempted |
+
+**The gate.** A foreground tool call dies at 10 minutes and orphans the
+runner (it keeps running, and billing) if the request turns out to be too big
+or too slow, so the runner refuses to start one as a `usage_error` prefixed
+`long-path request refused: ` — unless `--long` says the caller knows it is
+running in the background. Blocking conditions (any one is enough):
+
+- the serialized request body is >= 32768 bytes;
+- `reasoning_effort` is `high`, `xhigh`, or `max`;
+- the resolved model is in `MAX_EFFORT_BY_DEFAULT` (currently `kimi-k3`) and
+  no `reasoning_effort` was set — that model's server-side default is `max`.
+
+The refusal names a remedy per condition it hit (trim the prompt below 32768
+bytes; set `reasoning_effort` to `"low"`) — and because the sanctioned flow
+(see "Env vars" above) always passes `--long`, the gate in practice only ever
+faces a **direct caller**, never the plugin.
+
+**Orphan cleanup.** A killed launcher does not kill the runner — it is a
+foreground child that outlives its parent. To cancel a run, or clean up after
+a launcher that died without collecting the envelope, kill the process
+directly:
+
+    kill "$(cat <output-base>-pid.txt)"
 
 ### Error classes
 
@@ -142,35 +233,39 @@ models (usage shows `reasoning_tokens`).
 
 ### Building a request
 
-Always use the temp-file + `jq --rawfile` pattern — nested command
-substitutions corrupt escaping for prompts with quotes/`$`/backticks:
+Build mode composes the body — no manual shell templating needed (see the
+usage grammar and "Model and effort resolution" at the top of this file). The
+wire shapes below are exactly what it produces, kept here for debugging and
+as the reference for hand-driving legacy mode. Both share one system string,
+quoted once:
 
-    TMPFILE=$(mktemp)
-    trap 'rm -f "$TMPFILE"' EXIT
-    cat > "$TMPFILE" << 'PROMPT_EOF'
-    YOUR_PROMPT_HERE (inline file content — no backend reads local files)
-    PROMPT_EOF
-    jq -n --rawfile prompt "$TMPFILE" '{
-      model: "kimi-k3",
-      reasoning_effort: "low",
-      messages: [
-        {role: "system", content: "You are an expert reviewer providing a second opinion. Be specific, cite evidence, and explain your reasoning."},
-        {role: "user", content: $prompt}
+    "You are an expert reviewer providing a second opinion. Be specific, cite evidence, and explain your reasoning."
+
+OpenAI-compatible backends (Kimi, OpenAI, DeepSeek, xAI, z.AI, MiniMax):
+
+    {
+      "model": "<resolved model>",
+      "reasoning_effort": "<resolved effort>",
+      "messages": [
+        {"role": "system", "content": "<system string above>"},
+        {"role": "user", "content": "<prompt file content>"}
       ]
-    }' > request.json
-    rm -f "$TMPFILE"
+    }
 
-The default backend is Kimi (`model: "kimi-k3"`); swap the model string for
-another OpenAI-compatible backend as needed. Do NOT add `temperature`, `top_p`,
-`n`, `presence_penalty`, or `frequency_penalty` — Kimi fixes them server-side
-and the other backends do not need them here.
+`reasoning_effort` is present only when build-mode effort resolution produced
+a value (see "Model and effort resolution" above) — e.g. it is absent by
+default on `gpt-5.6-sol`, present and `"low"` by default on `kimi-k3`.
 
-`reasoning_effort: "low"` is not optional boilerplate on `kimi-k3`: omitting it
-means max effort (~5× the latency) and the runner's gate will refuse the run.
-Drop the field for the other backends, which default to a sane middle tier.
+Gemini's shape has no `"model"` field — see "Gemini backend" below for why:
 
-Use `<< PROMPT_EOF` (unquoted) instead when the heredoc must expand a shell
-variable such as `$(cat file)` output or `$DIFF`.
+    {
+      "systemInstruction": {"parts": [{"text": "<system string above>"}]},
+      "contents": [{"parts": [{"text": "<prompt file content>"}]}]
+    }
+
+The runner does not add `temperature`, `top_p`, `n`, `presence_penalty`, or
+`frequency_penalty` to either shape — Kimi fixes them server-side and the
+other backends do not need them here.
 
 ### Models
 
@@ -213,7 +308,11 @@ host is authoritative for *your* key (2026-07-23: newest were `glm-5.2` and
   stream cut *inside* a think block therefore yields empty text, classified
   `empty`, not `partial` — correct, since no review had arrived yet.
 - `reasoning_effort` support is unverified on both — omit the field there
-  (defaults are sane; see latencies above).
+  (defaults are sane; see latencies above). This is the fork's routing rule
+  for effort, stated plainly: pass `--effort` for kimi / openai / deepseek /
+  xai; omit it for gemini (the runner refuses the flag — no such API
+  parameter) and for z.AI / MiniMax (`reasoning_effort` support unverified
+  here, as of 2026-07-23).
 
 ### Kimi `kimi-k3` quirks
 
@@ -234,11 +333,14 @@ host is authoritative for *your* key (2026-07-23: newest were `glm-5.2` and
   | unset (= `max`) | **462 s** | 11,595 |
   | `"low"` | **92 s** | 919 |
 
-  Both reviews led with the same top finding, so max effort bought latency, not
-  insight. 462 s also sits only 18 s inside the short path's 480 s per-attempt
-  budget — which is exactly how "Kimi always times out" happened. Use `"low"`
-  for the short path; reserve `"high"`/`"max"` for the long path. The runner's
-  gate enforces this (see SKILL.md "Execution model").
+  Both reviews led with the same top finding, so max effort bought latency,
+  not insight. Build mode closes this by default: an unset `--effort` with
+  the resolved model `kimi-k3` gets `"low"` injected automatically (see
+  "Model and effort resolution" above). This measurement is what the gate
+  protects everyone else against — a legacy request.json (or any hand-built
+  body) for `kimi-k3` with no `reasoning_effort` field trips the gate's
+  "model defaults to max" condition and is refused as a foreground call (see
+  "Envelope, gate, and orphan cleanup" above).
 - **Fixed sampling params:** `temperature=1.0`, `top_p=0.95`, `n=1`,
   `presence_penalty=0`, `frequency_penalty=0` are fixed server-side — omit them
   from the request (the standard request shape above already does).
@@ -253,13 +355,16 @@ body (`low`/`medium`/`high`; DeepSeek pro also `xhigh`). Kimi `kimi-k3` accepts
 `low`/`high`/`max` (no `medium`) and always reasons regardless.
 
 Defaults differ in a way that matters: OpenAI and DeepSeek default to a middle
-tier, so omitting the field is safe there. **`kimi-k3` defaults to `max`**, so
-omitting it there is a max-effort call — always set it explicitly on Kimi.
+tier, so omitting the field is safe there. **`kimi-k3` defaults to `max`**
+server-side, so an unset effort in a legacy or hand-built body is a max-effort
+call — build mode's default resolution covers this for `kimi-k3` (see "Model
+and effort resolution" above), but always set it explicitly when hand-building
+a body or overriding to a different model.
 
 Raise effort for debugging, edge-case analysis, and hard problems, and note that
 a high-effort setting on a large input routinely runs 5–30 minutes — which is
-why the gate sends high-effort requests down the long path (rules in SKILL.md
-"Execution model").
+why `reasoning_effort` in `high`/`xhigh`/`max` is one of the gate's blocking
+conditions (see "Envelope, gate, and orphan cleanup" above).
 
 ### Flaky OpenAI 401 on large inputs (retried only for `openai`)
 
@@ -280,14 +385,10 @@ for nothing.
 ## Gemini backend
 
 Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`
-— the model goes in the URL, so the runner takes it as the 4th argument (and the
-request body has no model field). The key travels in the `x-goog-api-key`
-header, not the URL, so it stays out of `ps`/logs:
-
-    jq -n --rawfile prompt "$TMPFILE" '{
-      systemInstruction: {parts: [{text: "You are an expert reviewer providing a second opinion. Be specific, cite evidence, and explain your reasoning."}]},
-      contents: [{parts: [{text: $prompt}]}]
-    }' > request.json
+— the model goes in the URL, not the body (see "Building a request" above for
+the exact shape, and the legacy-mode paragraph at the top of this file for why
+a legacy gemini call needs the model as its 4th argument). The key travels in
+the `x-goog-api-key` header, not the URL, so it stays out of `ps`/logs.
 
 Response text can span multiple `parts` (thinking models emit
 `thoughtSignature`-only parts), so extraction joins all `.text` parts — the
