@@ -42,18 +42,24 @@ RUNNER_ENV = (["MAX_TIME", "DEADLINE", "ATTEMPTS"]
               + ["SECOND_OPINION_%s_MODEL" % p.upper() for p in mod.PROVIDERS])
 
 
-def run_main(argv, env=None):
-    """Invoke mod.main() with controlled argv/env; return (envelope, exit_code)."""
+def run_main_io(argv, env=None, stdout=None, entry=None):
+    """Invoke the runner with controlled argv/env/stdout.
+
+    Returns (stdout_text, stderr_text, exit_code). `stdout` substitutes a custom
+    sink (used to simulate a dead reader); `entry` substitutes the callable, so a
+    test can drive mod.cli() instead of mod.main().
+    """
     saved_argv = sys.argv
     saved_env = {k: os.environ.pop(k) for k in RUNNER_ENV if k in os.environ}
     os.environ.update(env or {})
     sys.argv = ["run-request.py"] + argv
-    out = io.StringIO()
+    out = stdout if stdout is not None else io.StringIO()
+    err = io.StringIO()
     code = None
     try:
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             try:
-                mod.main()
+                (entry or mod.main)()
             except SystemExit as e:
                 code = e.code
     finally:
@@ -61,7 +67,14 @@ def run_main(argv, env=None):
         for k in RUNNER_ENV:
             os.environ.pop(k, None)
         os.environ.update(saved_env)
-    return json.loads(out.getvalue()), code
+    written = out.getvalue() if hasattr(out, "getvalue") else ""
+    return written, err.getvalue(), code
+
+
+def run_main(argv, env=None):
+    """Invoke mod.main() with controlled argv/env; return (envelope, exit_code)."""
+    written, _err, code = run_main_io(argv, env)
+    return json.loads(written), code
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -264,8 +277,8 @@ class BackoffTests(unittest.TestCase):
         self.assertEqual(sleeps, [])
 
 
-class EnvelopeTests(unittest.TestCase):
-    """Exit codes and envelope shapes, end-to-end against a local server."""
+class _RunnerFixture:
+    """A temp output base plus a local HTTP server standing in for a provider."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -299,6 +312,10 @@ class EnvelopeTests(unittest.TestCase):
     def patch_provider(self, provider, url):
         _, key_env, auth = mod.PROVIDERS[provider]
         return mock.patch.dict(mod.PROVIDERS, {provider: (url, key_env, auth)})
+
+
+class EnvelopeTests(_RunnerFixture, unittest.TestCase):
+    """Exit codes and envelope shapes, end-to-end against a local server."""
 
     # --- usage errors (exit 2) ---
 
@@ -632,6 +649,221 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(os.path.exists(text_path),
                          "a failed rerun must not leave the prior run's review")
+
+
+class _DeadStdout(io.StringIO):
+    """A reader that has gone away: every write raises, like a broken pipe."""
+
+    def write(self, _s):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self):
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+class EnvelopeFileTests(_RunnerFixture, unittest.TestCase):
+    """<base>-envelope.json: the outcome as an artifact, not just a message.
+
+    Stdout reaches only the process that launched this one, so a launcher that
+    dies takes the outcome with it. These pin the on-disk copy.
+
+    Note: in-process runs always leave the pid file behind next to the envelope,
+    because run_main_io catches SystemExit and atexit therefore never fires. A
+    real process removes the pid file microseconds after writing the envelope —
+    see test_subprocess_writes_envelope_and_removes_pid.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.envelope_path = self.base + "-envelope.json"
+        # A test that drives cli() sets the module global by hand; make sure it
+        # can never leak into another test.
+        self.addCleanup(setattr, mod, "ENVELOPE_PATH", None)
+
+    def read_envelope_file(self):
+        with open(self.envelope_path) as f:
+            return f.read()
+
+    def completed_server(self, text="the review"):
+        return self.start_server(
+            lambda h: h.send_json(200, openai_completion(text, {"total_tokens": 3})))
+
+    def openai_request(self):
+        return self.write_request({"model": "gpt-5.6-terra",
+                                   "reasoning_effort": "low"})
+
+    # --- the regression the reviews caught ---
+
+    def test_dead_stdout_does_not_corrupt_the_envelope(self):
+        # The motivating case: the launcher is gone, so writing stdout raises.
+        # That must not escape emit() into cli()'s catch-all, which would emit a
+        # second, false "internal" envelope over the truthful one.
+        url = self.completed_server()
+        req = self.openai_request()
+        with self.patch_provider("openai", url):
+            _out, err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                          {"OPENAI_API_KEY": "k"},
+                                          stdout=_DeadStdout(), entry=mod.cli)
+        self.assertEqual(code, 0, "a dead reader must not change the exit code")
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["status"], "completed")
+        self.assertEqual(on_disk["chars"], len("the review"))
+        self.assertNotIn("internal", err)
+
+    def test_cli_catch_all_persists_internal_envelope(self):
+        mod.ENVELOPE_PATH = self.envelope_path
+        with mock.patch.object(mod, "main", side_effect=RuntimeError("boom")):
+            out, _err, code = run_main_io([], entry=mod.cli)
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["error_class"], "internal")
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["error_class"], "internal")
+        self.assertIn("boom", on_disk["detail"])
+
+    # --- the four terminal statuses ---
+
+    def test_completed_envelope_is_byte_identical_to_stdout(self):
+        url = self.completed_server()
+        req = self.openai_request()
+        with self.patch_provider("openai", url):
+            out, _err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                          {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read_envelope_file(), out)  # trailing newline included
+
+    def test_partial_envelope_persisted(self):
+        def respond(h):
+            h.send_sse([{"choices": [{"delta": {"content": "three findings..."}}]}])
+            time.sleep(3)
+            h.send_sse([])
+        url = self.start_server(respond)
+        req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
+        with self.patch_provider("kimi", url):
+            out, _err, code = run_main_io(["kimi", req, self.base],
+                                          {"MOONSHOT_API_KEY": "k", "DEADLINE": "1",
+                                           "ATTEMPTS": "1"})
+        self.assertEqual(code, 3)
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["status"], "partial")
+        self.assertIn("detail", on_disk)
+        self.assertEqual(self.read_envelope_file(), out)
+        with open(on_disk["text_path"]) as f:
+            self.assertEqual(f.read(), "three findings...")
+
+    def test_failed_envelope_persisted(self):
+        url = self.start_server(
+            lambda h: h.send_json(400, {"error": {"message": "bad model name"}}))
+        req = self.write_request({"model": "nope", "reasoning_effort": "low"})
+        with self.patch_provider("openai", url):
+            _out, _err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                           {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 1)
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["status"], "failed")
+        self.assertEqual(on_disk["error_class"], "bad_request")
+
+    def test_gate_refusal_persists_usage_error(self):
+        # A main session that forgot --long gets a typed explanation on disk
+        # instead of silence, which is the whole point of writing usage errors.
+        req = self.write_request({"model": "kimi-k3"})  # unset effort blocks
+        _out, _err, code = run_main_io(["kimi", req, self.base],
+                                       {"MOONSHOT_API_KEY": "k"})
+        self.assertEqual(code, 2)
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["status"], "usage_error")
+        self.assertIn("long-path request refused", on_disk["detail"])
+
+    def test_unset_key_persists_usage_error(self):
+        # A different path from the gate: post-gate, before the log is opened.
+        req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
+        _out, _err, code = run_main_io(["kimi", req, self.base])
+        self.assertEqual(code, 2)
+        on_disk = json.loads(self.read_envelope_file())
+        self.assertEqual(on_disk["status"], "usage_error")
+        self.assertIn("MOONSHOT_API_KEY not set", on_disk["detail"])
+
+    # --- staleness, leakage, write failures ---
+
+    def test_no_envelope_and_no_leak_when_base_is_unknown(self):
+        # Pins the reset at the top of main(): an invocation that never learns a
+        # base must not write into the previous invocation's directory.
+        url = self.completed_server()
+        req = self.openai_request()
+        with self.patch_provider("openai", url):
+            _out, _err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                           {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        first = self.read_envelope_file()
+
+        _out, _err, code = run_main_io(["kimi"])  # too few arguments
+        self.assertEqual(code, 2)
+        self.assertIsNone(mod.ENVELOPE_PATH)
+        self.assertEqual(self.read_envelope_file(), first,
+                         "the earlier run's envelope must be untouched")
+
+    def test_stale_envelope_is_dropped_even_if_the_new_write_fails(self):
+        # Seed a completed envelope, then run something that fails while the
+        # envelope write is broken. The file must be gone rather than lying.
+        with open(self.envelope_path, "w") as f:
+            f.write(json.dumps({"status": "completed", "chars": 999}) + "\n")
+        url = self.start_server(
+            lambda h: h.send_json(400, {"error": {"message": "nope"}}))
+        req = self.openai_request()
+        with self.patch_provider("openai", url), \
+                mock.patch("os.replace", side_effect=OSError("no")):
+            out, err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                         {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)["status"], "failed")
+        self.assertFalse(os.path.exists(self.envelope_path),
+                         "a stale success must not survive a failed write")
+        self.assertIn("could not write", err)
+        self.assertFalse(os.path.exists(self.envelope_path + ".tmp"),
+                         "the temp file must be cleaned up on failure")
+
+    def test_write_failure_leaves_stdout_and_exit_code_alone(self):
+        url = self.completed_server()
+        req = self.openai_request()
+        with self.patch_provider("openai", url), \
+                mock.patch("os.replace", side_effect=OSError("nope")):
+            out, err, code = run_main_io(["--no-stream", "openai", req, self.base],
+                                         {"OPENAI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["status"], "completed")
+        self.assertIn("could not write", err)
+        self.assertFalse(os.path.exists(self.envelope_path))
+        self.assertFalse(os.path.exists(self.envelope_path + ".tmp"))
+
+    def test_write_envelope_file_with_no_path_is_a_noop(self):
+        self.assertFalse(mod.write_envelope_file(None, "{}\n"))
+
+    # --- ordering, in a real process ---
+
+    def test_subprocess_writes_envelope_and_removes_pid(self):
+        # Only a real exit runs atexit, so this is the one place the documented
+        # ordering (envelope written, then stdout, then the pid file dropped) can
+        # be observed end-to-end.
+        url = self.completed_server("done")
+        req = self.openai_request()
+        driver = (
+            "import importlib.util, sys\n"
+            "script, url, req, base = sys.argv[1:5]\n"
+            "spec = importlib.util.spec_from_file_location('rr', script)\n"
+            "m = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(m)\n"
+            "m.PROVIDERS['openai'] = (url, 'OPENAI_API_KEY', 'bearer')\n"
+            "sys.argv = ['run-request.py', '--no-stream', 'openai', req, base]\n"
+            "m.cli()\n")
+        env = {k: v for k, v in os.environ.items() if k not in RUNNER_ENV}
+        env["OPENAI_API_KEY"] = "k"
+        proc = subprocess.run(
+            [sys.executable, "-c", driver, os.path.abspath(SCRIPT), url,
+             req, self.base],
+            capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.read_envelope_file(), proc.stdout)
+        self.assertFalse(os.path.exists(self.base + "-pid.txt"),
+                         "pid file must be gone once the envelope is on disk")
 
 
 if __name__ == "__main__":

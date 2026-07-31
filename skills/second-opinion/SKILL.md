@@ -1,6 +1,6 @@
 ---
 name: second-opinion
-description: Get a second opinion from Kimi, Gemini, OpenAI, DeepSeek, xAI, GLM (z.AI), or MiniMax via API. Use when you want feedback on code, plans, documents, arguments, or any work product. Also useful when stuck debugging or wanting a different perspective.
+description: Get a second opinion from Kimi, Gemini, OpenAI, DeepSeek, xAI, GLM (z.AI), or MiniMax via API. Use when you want feedback on code, plans, documents, arguments, or any work product. Also useful when stuck debugging or wanting a different perspective. Long reviews are handed back for the main session to run; any review produced lands in `<session scratchpad>/second-opinion-*/review-text.md`.
 argument-hint: [question or topic]
 allowed-tools: Bash, Read, Glob, Grep
 context: fork
@@ -75,8 +75,9 @@ might surface overlooked issues.
 This skill runs as a **fork**. Three facts shape everything:
 
 1. A Bash tool call dies at 10 minutes. Long reviews cannot run synchronously here.
-2. Background tasks started in a fork **die silently when it returns**. Never use
-   `run_in_background` in this skill, for anything.
+2. A background task started in a fork keeps running and billing, but its
+   completion **notification dies with the fork** — the result finishes and nobody
+   reads it (observed 2026-07-30). Never use `run_in_background` here, for anything.
 3. Foreground children **outlive the fork** — a killed fork orphans the runner,
    which keeps running and keeps billing. Hence `DEADLINE` and the PID file.
 
@@ -91,7 +92,8 @@ rather than letting a fork start it — but route correctly anyway:
   with Bash tool timeout 540000 ms (above the 450 s `DEADLINE`, so an envelope
   always comes back before the tool gives up).
 - **Long path** — 32 KB or larger, OR effort `high`/`xhigh`/`max`, OR `kimi-k3`
-  with no effort set: **start nothing.** Prepare everything and hand back.
+  with no effort set: **start nothing.** Prepare everything; on this path the
+  handoff message *is* your deliverable.
 
 Exhaustive and mutually exclusive; (a) is required regardless of (b).
 
@@ -104,7 +106,8 @@ nothing for over 10 minutes on a 52 KB input. So never shrink `MAX_TIME` to
 it at the 1800 default on the long path and bound the job with `DEADLINE`.
 
 **The envelope.** The runner prints exactly one JSON object on stdout — parse it,
-never guess:
+never guess. (It writes the same object to `<output-base>-envelope.json` when the
+run ends, which is how a long run's outcome survives a lost notification.)
 
 | status | exit | meaning |
 |---|---|---|
@@ -118,7 +121,8 @@ long path, do not add `--long` to force it through. A `failed` envelope is alway
 a *finished* call, never a running one, but not always a dead end: deterministic
 classes (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`) are final,
 while transient ones (`rate_limit`, `server_error`, `network`, `timeout`) went
-unretried under `ATTEMPTS=1` and may succeed on another try. Say which you have.
+unretried under the short path's `ATTEMPTS=1` and may succeed on another try. Say
+which you have.
 
 ## Workflow
 
@@ -143,7 +147,7 @@ unretried under `ATTEMPTS=1` and may succeed on another try. Say which you have.
 4. Build `$WORKDIR/request.json` with the temp-file + `jq --rawfile` pattern
    ([api-reference.md](api-reference.md)).
 5. Apply the gate. Short path: run it, parse the envelope, return COMPLETED or
-   PARTIAL. Long path: return NOT-RUN, start nothing.
+   PARTIAL. Long path: return the NOT-RUN handoff — that message is the whole job.
 6. **Do not evaluate or summarize the review** — hand back its path. The main
    session reads the file and judges it.
 
@@ -153,9 +157,16 @@ The fork's final message is the ONLY thing that survives it. Use one of these
 templates. "Running", "waiting", and "monitoring" are banned — a fork cannot
 truthfully say them about any process.
 
+Whatever shape the message takes, it names the files the run leaves on disk —
+`<WORKDIR>/review-text.md` (the review) and `<WORKDIR>/review-log.txt` (the
+run/attempt trace). Those paths are the main session's only route to the work if
+anything about this handoff goes wrong. Two exceptions, both because no review
+exists: a FAILED run carries only the log, and the no-target case neither.
+
     STATUS: COMPLETED
     model: <actual model id>
     response: <the envelope's text_path>
+    log: <the envelope's log_path>
     MAIN SESSION: Read that file — it is the deliverable and is not reproduced here.
     contents: <the review's own headings, quoted verbatim, plus its size.
      EXTRACTION, NOT CHARACTERIZATION — copy the reviewer's words; do not
@@ -164,6 +175,7 @@ truthfully say them about any process.
     STATUS: PARTIAL (<chars> chars, cut short: <detail>)
     model: <actual model id>
     response: <the envelope's text_path>
+    log: <the envelope's log_path>
     MAIN SESSION: Read that file. Completed findings are valid; the last one may
       stop mid-sentence — ignore that one.
     contents: <same rule as COMPLETED>
@@ -183,10 +195,17 @@ truthfully say them about any process.
 
     STATUS: NOT-RUN (long review — must be executed by the main session)
     request: <WORKDIR>/request.json (<size>, model <model>, reasoning_effort <value>)
-    Main session: run this with run_in_background: true —
-      DEADLINE=5400 ATTEMPTS=1 python3 <skill-dir>/scripts/run-request.py --long <provider> <WORKDIR>/request.json <WORKDIR>/review [gemini-model]
-    On the completion notification, parse the envelope and read its text_path.
-    If cancelled, kill the orphan: kill "$(cat <WORKDIR>/review-pid.txt)"
+    outputs once run: <WORKDIR>/review-envelope.json (the outcome, written when the
+      run ends), <WORKDIR>/review-text.md (the review), <WORKDIR>/review-log.txt
+      (run/attempt trace)
+    MAIN SESSION — the command below is yours to launch, as a BACKGROUND Bash task;
+      a foreground call dies at 10 minutes and orphans the runner:
+      DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long <provider> <WORKDIR>/request.json <WORKDIR>/review [gemini-model]
+    Parse the envelope it prints, then read its text_path. Do not wait on a
+      completion notification: review-envelope.json appearing IS the completion
+      signal, and it says how the run ended. If it never appears and the process is
+      gone, review-log.txt says what happened.
+    To cancel: kill "$(cat <WORKDIR>/review-pid.txt)"
 
 `--long` is required on the long path — without it the runner refuses to start.
 

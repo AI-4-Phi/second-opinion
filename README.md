@@ -84,6 +84,8 @@ the skill at it with an env var instead of waiting for an update:
   — endpoints, request shapes, measured provider behavior
 - [skills/second-opinion/SKILL.md](skills/second-opinion/SKILL.md) — the skill
   itself (what Claude follows)
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit: fork, runner, the files
+  a run leaves, and what survives what
 
 ## Troubleshooting
 
@@ -98,6 +100,15 @@ the skill at it with an env var instead of waiting for an update:
 - **A reply of `STATUS: NOT-RUN` is not an error** — large or high-reasoning
   requests are deliberately handed back for the main session to run in the
   background.
+- **The skill replies that it is "waiting for" or "monitoring" a background
+  review** — it cannot be, and no completion notification will arrive: the fork
+  ended when it sent that message. The runner it started keeps going and does
+  finish, so the outcome is on disk — look in the session's scratchpad directory
+  for `second-opinion-*/review-envelope.json`, which says how the run ended and
+  where its text is, with `review-text.md` beside it. Observed once on 0.1.1
+  (2026-07-30); 0.1.2 removes the copy-pasteable background-launch line that
+  invited it, has each handoff name the artifacts its run leaves, and writes that
+  envelope file so a lost notification no longer loses the result.
 - **"No task found with ID: second-opinion-second-opinion" (non-Anthropic
   driver only)** — this plugin targets Claude Code running on Anthropic models.
   The skill runs as a forked background task, and on a standard Anthropic driver
