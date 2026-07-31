@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.2.0 — 2026-07
+
+The fork prepares, the main session launches. Every review used to run
+*inside* the forked skill invocation, which meant a long review's outcome
+depended on a fork obeying prose it could just as easily ignore — 0.1.2
+existed to make that non-compliance recoverable, not to stop it happening.
+0.2.0 removes the option: the fork's tools no longer include a shell, so it
+cannot launch anything. It can only build the request and hand back a
+concrete, zero-edit command for the main session to run.
+
+- **Breaking: the skill never runs the review itself.** Every review — short
+  or long — is launched by the main session from the fork's PREPARED
+  handoff. The old `STATUS: NOT-RUN` / `COMPLETED` / `PARTIAL` fork replies
+  are retired; a fork now only ever returns `PREPARED` or `FAILED`.
+- **Breaking: fork toolset narrowed.** `disallowed-tools` on the skill
+  frontmatter removes Bash, PowerShell, and the dispatch tools (Task, Agent,
+  Skill, Workflow, ToolSearch, SendMessage, Monitor, CronCreate,
+  RemoteTrigger) from the fork, so it structurally cannot run the runner,
+  spawn a subprocess, or hand the job to another agent — E1-verified
+  2026-07-31.
+- **Added: runner build mode.** `run-request.py --prompt-file <path> [--model
+  <id>] [--effort <level>] <provider> <output-base>` has the runner compose
+  the API request body itself from a plain prompt file, instead of requiring
+  a pre-assembled `request.json` (legacy mode, still supported). That's what
+  makes the no-shell fork possible: the fork no longer has to build JSON by
+  hand before handing off — it writes the prompt and the launch command, and
+  build mode does the composing when the main session runs that command.
+- **Added: `SECOND_OPINION_<PROVIDER>_MODEL` resolution in build mode.** The
+  env override is read at build time when picking the model; legacy mode
+  still never reads it.
+- **Added: model-keyed low-effort injection for `kimi-k3`** — the old "always
+  set `reasoning_effort` on kimi-k3" prose rule from the fork, now enforced
+  in code at build time. **Added: gemini `--effort` validation** — gemini has
+  no `reasoning_effort` parameter, so an `--effort` flag against a gemini
+  target is a usage error rather than silently ignored.
+- **Added: `os.makedirs` on the output base.** Both legacy and build mode
+  now create missing output directories instead of failing on them.
+- **Added: `<base>-request.json`**, the built request artifact, and
+  **`launch.txt`**, the handoff command — byte-for-byte what the fork's
+  PREPARED message tells the main session to run.
+- **Added: self-clearing launch command.** The command in `launch.txt` opens
+  with `rm -f` against the WORKDIR's stale `review-envelope.json` and
+  `review-text.md` before it runs, so a second launch against a re-prepared
+  WORKDIR can't be misread against leftovers from the first.
+- **Changed:** legacy invocations with unknown `--flags` — previously
+  swallowed silently and treated as positional arguments — are now a
+  `usage_error`. Malformed-invocation error text is reworded to match.
+- **Changed:** the gate's refusal message and its "size" reason are reworded.
+  The old refusal text named "a skill fork" specifically; that framing
+  stopped being true once forks lost the ability to run anything, so the
+  wording is now mode-agnostic. The substrings every test pins — the prefix
+  `long-path request refused: `, the remedy `trim the prompt`, the remedy
+  `set reasoning_effort to "low"` — are unchanged.
+- **Unchanged:** legacy CLI acceptance for every documented invocation, the
+  envelope contract and file, the gate's size/effort thresholds, exit codes.
+- **Removed:** the `jq` dependency and every `jq` invocation pattern from the
+  docs. The fork used to build `request.json` by hand with a temp-file +
+  `jq --rawfile` recipe; build mode does that composing now, so nothing
+  shells out to `jq`.
+- 59 new tests (125 total), covering build mode end-to-end and the strict
+  CLI grammar (the narrowed fork toolset is verified by the manual E1 probe,
+  not the unit suite).
+
 ## 0.1.2 — 2026-07
 
 Long-path handoff hardening, and the runner's outcome becomes an artifact. On 0.1.1
