@@ -15,11 +15,10 @@ concrete, zero-edit command for the main session to run.
   handoff. The old `STATUS: NOT-RUN` / `COMPLETED` / `PARTIAL` fork replies
   are retired; a fork now only ever returns `PREPARED` or `FAILED`.
 - **Breaking: fork toolset narrowed.** `disallowed-tools` on the skill
-  frontmatter removes Bash, PowerShell, and the dispatch tools (Task, Agent,
-  Skill, Workflow, ToolSearch, SendMessage, Monitor, CronCreate,
-  RemoteTrigger) from the fork, so it structurally cannot run the runner,
-  spawn a subprocess, or hand the job to another agent — E1-verified
-  2026-07-31.
+  frontmatter removes Bash, PowerShell, and the dispatch tools (Agent, Skill,
+  Workflow, ToolSearch, SendMessage, Monitor, CronCreate, RemoteTrigger) from
+  the fork, so it structurally cannot run the runner, spawn a subprocess, or
+  hand the job to another agent — E1-verified 2026-07-31.
 - **Breaking: no more silent key-fallback.** The 0.1.x fork pre-checked API
   keys and silently fell back to Gemini when the default backend's key was
   missing. The 0.2.0 fork cannot check keys — it has no shell — so a

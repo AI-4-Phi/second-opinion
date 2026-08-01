@@ -11,7 +11,7 @@ description: >-
   diff to a file first and pass its path.
 argument-hint: [question or topic]
 allowed-tools: Read, Glob, Grep, Write
-disallowed-tools: Bash, PowerShell, Task, Agent, Skill, Workflow, ToolSearch, SendMessage, Monitor, CronCreate, RemoteTrigger
+disallowed-tools: Bash, PowerShell, Agent, Skill, Workflow, ToolSearch, SendMessage, Monitor, CronCreate, RemoteTrigger
 context: fork
 model: sonnet
 ---
