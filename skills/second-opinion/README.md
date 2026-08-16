@@ -76,7 +76,7 @@ default models" below to adapt without waiting for one.
 | DeepSeek | `deepseek-v4-flash` | Cheapest useful review | 1M ctx; ~$0.14/M in |
 | xAI | `grok-4.5` | Independent opinion, flagship | 500k ctx; $2/$6 per M |
 | xAI | `grok-4.3` | Long documents | 1M ctx; ~half the price of 4.5 |
-| z.AI | `glm-5.2` | Independent opinion | Reasons by default; glm-5.x line moves fast — check `/models` |
+| z.AI | `glm-5.2` | Independent opinion | Reasons by default; glm-5.x moves fast, but a `/models` listing isn't access — see api-reference.md |
 | MiniMax | `MiniMax-M3` | Fast independent opinion | Reasons by default; ~5 s on small prompts |
 
 Kimi is the default but the priciest and slowest (always reasoning); for a quick

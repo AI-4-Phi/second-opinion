@@ -283,7 +283,7 @@ Verified 2026-07. To change a backend's default without editing the skill, set
 | DeepSeek | `deepseek-v4-flash` | cheapest useful review (~$0.14/M in); 1M ctx |
 | xAI | `grok-4.5` | xAI flagship; 500k ctx |
 | xAI | `grok-4.3` | 1M ctx, ~half price — long documents |
-| z.AI | `glm-5.2` | newest on this endpoint's `/models` (verified 2026-07-23) |
+| z.AI | `glm-5.2` | newest *accessible* on this endpoint's `/models` (re-verified 2026-08-16; gating note below) |
 | MiniMax | `MiniMax-M3` | MiniMax flagship; `<think>` quirk below |
 | MiniMax | `MiniMax-M2.7-highspeed` | faster tier |
 
@@ -293,8 +293,13 @@ K2.x `thinking` parameter); there is no bare `gpt-5.6` (only `-sol`/`-terra`/`-l
 `deepseek-chat`/`deepseek-reasoner` aliases are deprecated as of 2026-07-24 —
 use the `deepseek-v4-*` names; ignore xAI's `grok-4.20-*`, `grok-build-*`, and
 `grok-imagine-*` entries. For z.AI and MiniMax, `GET /models` on the endpoint
-host is authoritative for *your* key (2026-07-23: newest were `glm-5.2` and
-`MiniMax-M3`).
+host lists the candidates for *your* key — but **a listing is not access**:
+2026-08-16, `glm-5.3` appeared on z.AI's `/models` while every completion on a
+standard API key failed with error 1220 "You do not have permission to access
+glm-5.3" (at launch it was gated to the GLM Coding Plan / ZCode, with plain API
+access staged to follow). So before promoting a newer id, run one live
+completion on it; newest *accessible* were `glm-5.2` and `MiniMax-M3`
+(re-verified 2026-08-16).
 
 ### z.AI and MiniMax quirks (verified 2026-07-23, live smoke tests)
 

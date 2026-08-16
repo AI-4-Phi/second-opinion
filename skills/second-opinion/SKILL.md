@@ -49,7 +49,7 @@ main session launches, not from this fork. Keep the line.
 | OpenAI | `OPENAI_API_KEY` | `gpt-5.6-terra` (balanced), `gpt-5.5` (prior flagship). `gpt-5.6-luna` is tier-gated on some keys ([api-reference.md](api-reference.md)) |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` (cheapest useful review); both 1M ctx |
 | xAI | `XAI_API_KEY` | `grok-4.3` (1M ctx, half price — long documents) |
-| z.AI | `ZAI_API_KEY` | glm-5.x line moves fast — newest on `GET /api/paas/v4/models` wins |
+| z.AI | `ZAI_API_KEY` | glm-5.x line moves fast — but a `/models` listing isn't access ([api-reference.md](api-reference.md)) |
 | MiniMax | `MINIMAX_API_KEY` | `MiniMax-M2.7-highspeed` (faster tier) |
 
 Per-provider **default models live in the runner**
