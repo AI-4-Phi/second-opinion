@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.1 — 2026-08
+
+- **z.AI re-verified 2026-08-16.** `glm-5.3` (launched ~2026-08-13) appears on
+  `GET /api/paas/v4/models`, but a completion on a standard API key fails with
+  error 1220, "You do not have permission to access glm-5.3" — at launch it is
+  gated to the GLM Coding Plan / ZCode, with plain API access staged to follow.
+  `glm-5.2` stays the z.AI default (control probe: completes fine, still
+  reasons by default).
+- **A listing is not access.** That falsifies the "newest on `/models` wins"
+  rule the skill gave for the fast-moving glm-5.x line: promote a newer id only
+  after one live completion on it succeeds. api-reference.md carries the
+  finding; SKILL.md and the skill README keep a pointer to it.
+- Documentation only — the runner is unchanged and its 125 tests still pass.
+
 ## 0.2.0 — 2026-07
 
 The fork prepares, the main session launches. Every review used to run
