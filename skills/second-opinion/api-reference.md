@@ -269,7 +269,8 @@ other backends do not need them here.
 
 ### Models
 
-Verified 2026-07. To change a backend's default without editing the skill, set
+Verified 2026-07, except where a row carries a later date. To change a
+backend's default without editing the skill, set
 `SECOND_OPINION_<PROVIDER>_MODEL` (see SKILL.md "Available Backends").
 
 | Provider | Model | Role |
@@ -283,7 +284,7 @@ Verified 2026-07. To change a backend's default without editing the skill, set
 | DeepSeek | `deepseek-v4-flash` | cheapest useful review (~$0.14/M in); 1M ctx |
 | xAI | `grok-4.5` | xAI flagship; 500k ctx |
 | xAI | `grok-4.3` | 1M ctx, ~half price — long documents |
-| z.AI | `glm-5.2` | newest *accessible* on this endpoint's `/models` (re-verified 2026-08-16; gating note below) |
+| z.AI | `glm-5.3` | newest *accessible* on this endpoint's `/models` (live completion verified 2026-08-20) |
 | MiniMax | `MiniMax-M3` | MiniMax flagship; `<think>` quirk below |
 | MiniMax | `MiniMax-M2.7-highspeed` | faster tier |
 
@@ -293,19 +294,20 @@ K2.x `thinking` parameter); there is no bare `gpt-5.6` (only `-sol`/`-terra`/`-l
 `deepseek-chat`/`deepseek-reasoner` aliases are deprecated as of 2026-07-24 —
 use the `deepseek-v4-*` names; ignore xAI's `grok-4.20-*`, `grok-build-*`, and
 `grok-imagine-*` entries. For z.AI and MiniMax, `GET /models` on the endpoint
-host lists the candidates for *your* key — but **a listing is not access**:
-2026-08-16, `glm-5.3` appeared on z.AI's `/models` while every completion on a
-standard API key failed with error 1220 "You do not have permission to access
-glm-5.3" (at launch it was gated to the GLM Coding Plan / ZCode, with plain API
-access staged to follow). So before promoting a newer id, run one live
-completion on it; newest *accessible* were `glm-5.2` and `MiniMax-M3`
-(re-verified 2026-08-16).
+host lists the candidates for *your* key — but **a listing is not access**, so
+before promoting a newer id, run one live completion on it: `glm-5.3` was
+listed on 2026-08-16 while every completion on a standard API key failed with
+error 1220, "You do not have permission to access glm-5.3" (launch gating to
+the GLM Coding Plan / ZCode); that gate had lifted by 2026-08-20, when a live
+completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
+(verified 2026-08-20) and `MiniMax-M3` (verified 2026-08-16).
 
 ### z.AI and MiniMax quirks (verified 2026-07-23, live smoke tests)
 
 - Both stream fine through the runner (accept the injected `stream` +
-  `stream_options`) and reason by default (usage shows `reasoning_tokens`).
-  Small-prompt wall clock: `glm-5.2` ~15 s, `MiniMax-M3` ~5 s.
+  `stream_options`) and reason by default (usage shows `reasoning_tokens`) —
+  re-confirmed for `glm-5.3` on 2026-08-20. Small-prompt wall clock: `glm-5.3`
+  ~15 s (2026-08-20), `MiniMax-M3` ~5 s.
 - **MiniMax puts its chain of thought INSIDE `message.content`, wrapped in
   `<think>...</think>`** — not in the `reasoning_content` field other backends
   use. The runner strips those blocks for `provider == "minimax"` (tags can

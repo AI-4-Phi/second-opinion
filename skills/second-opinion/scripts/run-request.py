@@ -177,15 +177,16 @@ MAX_EFFORT_BY_DEFAULT = {"kimi-k3"}
 # The runner assembles the request itself from a prompt file; the fork no
 # longer hand-builds request.json. Single authoritative home for per-provider
 # default models (SKILL.md keeps routing guidance and alternatives only).
-# Verified 2026-07 against each provider's GET /models. Override without a
-# release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
+# Verified 2026-07 against each provider's GET /models (z.AI re-verified
+# 2026-08-20 by live completion). Override without a release via
+# SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
 # legacy mode never reads env for its model.
 DEFAULT_MODELS = {
     "kimi":     "kimi-k3",
     "openai":   "gpt-5.6-sol",
     "deepseek": "deepseek-v4-pro",
     "xai":      "grok-4.5",
-    "zai":      "glm-5.2",
+    "zai":      "glm-5.3",
     "minimax":  "MiniMax-M3",
     "gemini":   "gemini-3.1-pro-preview",
 }

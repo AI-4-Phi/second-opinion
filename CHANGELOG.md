@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2 — 2026-08
+
+- **z.AI default is now `glm-5.3`.** The access gate that blocked `glm-5.3` on
+  standard API keys in 0.2.1 has lifted: on 2026-08-20 a live completion on a
+  standard key succeeded (raw call and a full runner streaming pass, envelope
+  `completed`, reasoning on by default, ~15 s on a small prompt). That is the
+  promotion rule 0.2.1 set — a newer id moves in only after one live completion
+  on it succeeds — firing as written; the rule itself is unchanged.
+- Documentation plus the one-line default in `DEFAULT_MODELS`; the runner's
+  logic is unchanged and its 125 tests still pass.
+
 ## 0.2.1 — 2026-08
 
 - **z.AI re-verified 2026-08-16.** `glm-5.3` (launched ~2026-08-13) appears on
