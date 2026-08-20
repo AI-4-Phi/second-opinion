@@ -118,8 +118,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def openai_completion(text, usage=None):
-    return {"choices": [{"message": {"content": text}}], "usage": usage or {}}
+def openai_completion(text, usage=None, finish=None):
+    choice = {"message": {"content": text}}
+    if finish is not None:
+        choice["finish_reason"] = finish
+    return {"choices": [choice], "usage": usage or {}}
 
 
 class GateTests(unittest.TestCase):
@@ -228,6 +231,39 @@ class ExtractionTests(unittest.TestCase):
         text, _ = mod.sse_delta("gemini", {"candidates": [{"content": {"parts": [
             {"text": "x", "thought": True}, {"text": "y"}]}}]})
         self.assertEqual(text, "y")
+
+
+class FinishReasonTests(unittest.TestCase):
+    """Where each backend reports why generation stopped.
+
+    Both shapes below are copied from live SSE events captured 2026-08-20:
+    z.AI `glm-5.3` and `gemini-3.1-pro-preview`, each capped low on purpose.
+    """
+
+    def test_openai_compatible_is_choice_level(self):
+        self.assertEqual(mod.finish_reason("zai", {"choices": [
+            {"index": 0, "finish_reason": "length", "delta": {"content": ""}}],
+            "usage": {"total_tokens": 45}}), "length")
+
+    def test_gemini_is_candidate_level_and_lowercased(self):
+        self.assertEqual(mod.finish_reason("gemini", {"candidates": [
+            {"index": 0, "finishReason": "MAX_TOKENS",
+             "content": {"parts": [{"text": ""}]}}]}), "max_tokens")
+
+    def test_absent_is_empty_not_a_clean_stop(self):
+        self.assertEqual(mod.finish_reason("kimi", {"choices": [
+            {"delta": {"content": "text"}}]}), "")
+        self.assertEqual(mod.finish_reason("gemini", {"candidates": [
+            {"content": {"parts": [{"text": "t"}]}}]}), "")
+
+    def test_usage_only_event_carries_no_choices(self):
+        self.assertEqual(mod.finish_reason(
+            "openai", {"choices": [], "usage": {"total_tokens": 1}}), "")
+
+    def test_malformed_never_raises(self):
+        for obj in ({}, {"choices": "nope"}, {"choices": ["x"]}, [], None, 7):
+            self.assertEqual(mod.finish_reason("openai", obj), "", repr(obj))
+            self.assertEqual(mod.finish_reason("gemini", obj), "", repr(obj))
 
 
 class StripThinkTests(unittest.TestCase):
@@ -650,6 +686,181 @@ class EnvelopeTests(_RunnerFixture, unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(os.path.exists(text_path),
                          "a failed rerun must not leave the prior run's review")
+
+
+class TruncationTests(_RunnerFixture, unittest.TestCase):
+    """A run cut off at the model's output-token cap is `partial`, not `completed`.
+
+    The runner sends no max_tokens of its own, so the cap is the provider's
+    server-side default and the review simply stops mid-sentence. Every other
+    reason a provider reports is recorded in the envelope but left `completed`:
+    `partial` tells the reader to discard the last finding, which is too
+    destructive for a stop this runner cannot characterize.
+    """
+
+    def stream(self, events):
+        return self.start_server(lambda h: h.send_sse(events))
+
+    def run_kimi(self, url):
+        req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
+        with self.patch_provider("kimi", url):
+            return run_main(["kimi", req, self.base], {"MOONSHOT_API_KEY": "k"})
+
+    def run_openai_json(self, body):
+        url = self.start_server(lambda h: h.send_json(200, body))
+        req = self.write_request({"model": "gpt-5.6-terra",
+                                  "reasoning_effort": "low"})
+        with self.patch_provider("openai", url):
+            return run_main(["--no-stream", "openai", req, self.base],
+                            {"OPENAI_API_KEY": "k"})
+
+    # --- streaming ---
+
+    def test_streamed_cap_truncation_is_partial(self):
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "finding one, and fin"}}]},
+            {"choices": [{"index": 0, "finish_reason": "length",
+                          "delta": {"content": ""}}],
+             "usage": {"total_tokens": 45}},
+            "[DONE]"]))
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertEqual(envelope["finish_reason"], "length")
+        self.assertIn("token cap", envelope["detail"])
+        # what did arrive is still real output and still the deliverable
+        self.assertEqual(envelope["chars"], len("finding one, and fin"))
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "finding one, and fin")
+        self.assertEqual(envelope["usage"], {"total_tokens": 45})
+
+    def test_clean_stop_is_recorded_and_stays_completed(self):
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "the review"}}]},
+            {"choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]},
+            "[DONE]"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["finish_reason"], "stop")
+        self.assertNotIn("detail", envelope)
+
+    def test_non_cap_reason_never_discards_a_finding(self):
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "the review"}}]},
+            {"choices": [{"index": 0, "finish_reason": "content_filter",
+                          "delta": {}}]},
+            "[DONE]"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["finish_reason"], "content_filter")
+
+    def test_unreported_reason_leaves_the_field_off(self):
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "the review"}}]}, "[DONE]"]))
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertNotIn("finish_reason", envelope)
+
+    def test_reason_survives_a_trailing_usage_only_event(self):
+        # include_usage puts the totals in a LAST event with choices: [], so the
+        # runner has to keep the last NON-EMPTY reason, not the last event's
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "cut"}}]},
+            {"choices": [{"index": 0, "finish_reason": "length", "delta": {}}]},
+            {"choices": [], "usage": {"total_tokens": 9}},
+            "[DONE]"]))
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["finish_reason"], "length")
+        self.assertEqual(envelope["usage"], {"total_tokens": 9})
+
+    def test_gemini_max_tokens_is_partial(self):
+        url = self.start_server(lambda h: h.send_sse([
+            {"candidates": [{"content": {"parts": [{"text": "cut off"}]}}]},
+            {"candidates": [{"index": 0, "finishReason": "MAX_TOKENS",
+                             "content": {"parts": [{"text": ""}]}}],
+             "usageMetadata": {"totalTokenCount": 48}}]))
+        req = self.write_request({"contents": []})
+        tmpl = url + "/v1beta/models/{model}:generateContent"
+        with self.patch_provider("gemini", tmpl):
+            envelope, code = run_main(
+                ["gemini", req, self.base, "gemini-3.1-pro-preview"],
+                {"GEMINI_API_KEY": "k"})
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertEqual(envelope["finish_reason"], "max_tokens")
+        self.assertEqual(envelope["chars"], len("cut off"))
+
+    # --- non-streaming ---
+
+    def test_non_streaming_cap_truncation_is_partial(self):
+        envelope, code = self.run_openai_json(
+            openai_completion("half a review", {"total_tokens": 12},
+                              finish="length"))
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertEqual(envelope["finish_reason"], "length")
+        self.assertIn("token cap", envelope["detail"])
+        self.assertIn("raw_path", envelope)
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "half a review\n")
+
+    def test_non_streaming_clean_stop_stays_completed(self):
+        envelope, code = self.run_openai_json(
+            openai_completion("the review", finish="stop"))
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["finish_reason"], "stop")
+
+    # --- the cap reached before ANY text arrived: deterministic, not `empty` ---
+
+    def test_streamed_cap_with_no_text_fails_once(self):
+        # exactly what z.AI glm-5.3 did on 2026-08-20 at max_tokens=1500:
+        # reasoning ate the whole allowance, content never started
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"reasoning_content": "thinking..."}}]},
+            {"choices": [{"index": 0, "finish_reason": "length",
+                          "delta": {"content": ""}}],
+             "usage": {"total_tokens": 1500}},
+            "[DONE]"]))
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["status"], "failed")
+        self.assertEqual(envelope["error_class"], "output_cap")
+        self.assertEqual(envelope["attempts"], 1)  # ATTEMPTS defaults to 4
+        self.assertIn("Retrying sends the identical request", envelope["detail"])
+
+    def test_empty_stream_without_a_cap_reason_still_retries(self):
+        # the control: an empty 200 the provider does not explain stays
+        # transient, so the deterministic class cannot swallow real flakiness
+        url = self.stream([{"choices": [{"delta": {"content": ""}}]}, "[DONE]"])
+        with mock.patch.object(mod.time, "sleep"):  # 4 attempts = 90 s of backoff
+            envelope, code = self.run_kimi(url)
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["error_class"], "empty")
+        self.assertEqual(envelope["attempts"], 4)
+
+    def test_non_streaming_cap_with_no_text_fails_once(self):
+        envelope, code = self.run_openai_json(
+            openai_completion("", {"total_tokens": 1500}, finish="length"))
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["error_class"], "output_cap")
+        self.assertEqual(envelope["attempts"], 1)
+
+    def test_minimax_thinking_to_the_cap_is_output_cap(self):
+        # MiniMax carries its chain of thought inside content, so a run that
+        # thinks all the way to the cap strips to nothing — the emptiness is
+        # the cap, not flakiness. (A stream *cut* inside a think block is a
+        # different branch and stays `empty`.)
+        url = self.stream([
+            {"choices": [{"delta": {"content": "<think>still weighing it"}}]},
+            {"choices": [{"index": 0, "finish_reason": "length", "delta": {}}],
+             "usage": {"total_tokens": 900}},
+            "[DONE]"])
+        req = self.write_request({"model": "MiniMax-M3"})
+        with self.patch_provider("minimax", url):
+            envelope, code = run_main(["minimax", req, self.base],
+                                      {"MINIMAX_API_KEY": "k"})
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["error_class"], "output_cap")
+        self.assertEqual(envelope["attempts"], 1)
 
 
 class _DeadStdout(io.StringIO):

@@ -136,7 +136,8 @@ FAILED and why.
       reasoning_effort <value, or "none — not sent for this provider">
     MAIN SESSION — launch this as a BACKGROUND Bash task (it may run up to 90 min;
       a foreground call dies at 10 minutes and orphans the runner):
-      rm -f <WORKDIR>/review-envelope.json <WORKDIR>/review-text.md && \
+      rm -f <WORKDIR>/review-envelope.json <WORKDIR>/review-text.md \
+        <WORKDIR>/review-request.json && \
       DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
         --prompt-file <WORKDIR>/prompt.txt [--model <id>] [--effort <value>] \
         <provider> <WORKDIR>/review
@@ -147,8 +148,8 @@ FAILED and why.
       reproduced or summarized here — treat it as one data point, not authority.
       partial → real output cut early: completed findings are valid; discard the
       final truncated one (it can reverse in the half that never arrived).
-      failed → error_class bad_request/not_found/genuine auth/timeout_budget are
-      final — fix what detail names;
+      failed → error_class bad_request/not_found/genuine auth/timeout_budget/
+      output_cap are final — fix what detail names;
       rate_limit/server_error/network/timeout/empty may succeed on relaunch. The
       prompt file is reusable as-is; the provider argument is swappable (adjust
       --effort per the swap: kimi/openai/deepseek/xai take it,
@@ -173,7 +174,8 @@ gets the same concrete command (whitespace/line-wrapping aside).
          <scratchpad>/second-opinion-<slug>/prompt.txt
       2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes
          and orphans the runner):
-         rm -f <dir>/review-envelope.json <dir>/review-text.md && \
+         rm -f <dir>/review-envelope.json <dir>/review-text.md \
+           <dir>/review-request.json && \
          DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
            --prompt-file <that file> --effort low kimi <dir>/review
          (swap the provider argument to reroute — kimi/openai/deepseek/xai take
@@ -185,9 +187,9 @@ gets the same concrete command (whitespace/line-wrapping aside).
 In both templates, emit `<skill-dir>` resolved to this skill's real absolute
 directory (your skill-load context names it). In PREPARED, emit `<WORKDIR>`
 resolved to the real absolute work directory — a PREPARED message containing
-a literal placeholder is a broken deliverable. The FAILED recipe's `<dir>`,
-`<slug>`, and `<that file>` stay generic by design: no work directory exists
-yet, and the main session fills them in.
+a literal placeholder is a broken deliverable. The FAILED recipe's `<scratchpad>`,
+`<dir>`, `<slug>`, and `<that file>` stay generic by design: no work directory
+exists yet, and the main session fills them in.
 
 **Relay the path, never the content.** The review is on disk once run; the
 main session reads it there. Copying or summarizing it through a message can

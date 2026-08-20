@@ -108,10 +108,10 @@ whenever you override a default model.
 - **The review's envelope reports `failed` with an `error_class`** — the fork
   never runs a review itself, so this arrives only via `review-envelope.json`
   (or the background task's own output), never as a fork reply. Deterministic
-  classes (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`) mean
-  the request itself is wrong for that backend; transient ones (`rate_limit`,
-  `server_error`, `network`, `timeout`) are worth retrying. Details and
-  measured provider behavior:
+  classes (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`,
+  `output_cap`) mean the request itself is wrong for that backend; transient
+  ones (`rate_limit`, `server_error`, `network`, `timeout`) are worth retrying.
+  Details and measured provider behavior:
   [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
 - **A reply of `STATUS: PREPARED` is not an error** — every review is
   deliberately handed back for the main session to launch in the background;
@@ -129,8 +129,9 @@ whenever you override a default model.
   where its text is, with `review-text.md` beside it. If it was never launched
   (the fork ended before the command ran, or the command was lost), the work
   is still recoverable: `prompt.txt` and `launch.txt` sit in that same
-  directory — `launch.txt` holds the exact command, byte-identical to what the
-  PREPARED message showed.
+  directory. `launch.txt` is the authoritative copy of the command — run it as
+  a background task exactly as written, whether or not you still have the
+  PREPARED message.
 - **"No task found with ID: second-opinion-second-opinion" (non-Anthropic
   driver only)** — this plugin targets Claude Code running on Anthropic models.
   The skill runs as a forked background task, and on a standard Anthropic driver
@@ -176,9 +177,11 @@ whenever you override a default model.
 
 ## Using a partial review
 
-A run interrupted mid-stream — by a timeout or otherwise — still leaves real
-work on disk, reported as status `partial` in the envelope: normally N
-complete findings plus one cut mid-sentence. Use it rather than discarding it:
+A review can stop before it is finished two ways: the stream is interrupted (a
+timeout or otherwise), or the model runs into its own output-token cap and the
+provider says so. Either way real work is on disk, reported as status `partial`
+in the envelope: normally N complete findings plus one cut mid-sentence. Use it
+rather than discarding it:
 
 - **The completed findings are valid.** Act on them.
 - **Never act on the truncated final item.** A halted sentence can reverse
@@ -193,7 +196,10 @@ complete findings plus one cut mid-sentence. Use it rather than discarding it:
   of repeating findings you already fixed. Re-running immediately just pays
   twice for the same N.
 - **Repeated truncation at the same place means the target is too big** —
-  split it into smaller reviews.
+  split it into smaller reviews. If the envelope's `finish_reason` says
+  `length` (or `max_tokens` on Gemini), that is the backend's output cap, not a
+  network problem; a shorter prompt or a different backend is the fix, and a
+  re-run of the same request will stop in the same place.
 
 Envelope, status, and gate details:
 [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).

@@ -529,6 +529,35 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         self.assertEqual(artifact["model"], "kimi-k3")
         self.assertEqual(artifact["reasoning_effort"], "low")
 
+    def test_stale_artifact_dropped_when_a_rerun_is_refused(self):
+        url = self.sse_server()
+        env = {"MOONSHOT_API_KEY": "k"}
+        with self.patch_provider("kimi", url):
+            _e, code = run_main(
+                ["--prompt-file", self.write_prompt(), "kimi", self.base], env)
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.artifact))
+        # a second run at the same base that never reaches the request must not
+        # leave the FIRST run's body behind looking like this one's
+        big = self.write_prompt("x" * mod.GATE_BYTES)
+        _e, code = run_main(["--prompt-file", big, "kimi", self.base], env)
+        self.assertEqual(code, 2)
+        self.assertFalse(os.path.exists(self.artifact))
+
+    def test_legacy_mode_never_deletes_its_own_input(self):
+        # the documented hand re-run passes <base>-request.json as the request
+        # file AND reuses the base — the stale-artifact sweep is build-mode
+        # only precisely so it cannot eat that input
+        url = self.sse_server()
+        env = {"MOONSHOT_API_KEY": "k"}
+        with self.patch_provider("kimi", url):
+            _e, code = run_main(
+                ["--prompt-file", self.write_prompt(), "kimi", self.base], env)
+            self.assertEqual(code, 0)
+            _e, code = run_main(["kimi", self.artifact, self.base], env)
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.artifact))
+
     def test_artifact_reruns_through_legacy_mode(self):
         url = self.sse_server()
         prompt = self.write_prompt()

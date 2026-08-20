@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.3 — 2026-08
+
+- **A review the provider cut off no longer reports as `completed`.** The
+  runner sends no `max_tokens`, so a backend's own output cap can end a review
+  mid-sentence while the HTTP call succeeds — and until now that landed as a
+  short review under a truthful-looking `completed` envelope, with nothing to
+  distinguish it from a model that simply had little to say. The runner now
+  reads the provider's finish reason (`choices[0].finish_reason`, or
+  `candidates[0].finishReason` on gemini), records it in the envelope as
+  `finish_reason`, and reports `partial` — exit 3 — when it is a cap
+  truncation.
+- **Only a cap reason downgrades the status.** `length` and gemini's
+  `MAX_TOKENS` mean the review stops mid-sentence; everything else a provider
+  might report (`content_filter` and the like) stays `completed` with the
+  reason visible in the envelope. `partial` instructs the reader to discard the
+  final finding, so a false `partial` destroys real work — the allowlist is the
+  safe side.
+- **A cap reached before any review text arrives is a new deterministic
+  failure, `output_cap`.** Reasoning runs first on the reasoning-by-default
+  backends, so a small enough cap is spent entirely on thinking and the content
+  comes back empty — which the runner classified as `empty` and retried four
+  times, each attempt billed for the identical truncation. It now fails on the
+  first attempt and says what to change.
+- Verified 2026-08-20. Wire shape: z.AI `glm-5.3` (`"length"`) and
+  `gemini-3.1-pro-preview` (`"MAX_TOKENS"`), both delivered in the same SSE
+  event as the usage totals. End to end through the runner: `kimi-k3` capped at
+  300 tokens returned `partial`, exit 3, `finish_reason: "length"`, 1320
+  characters of review on disk cut mid-sentence — the same run reported
+  `completed` before this release; `glm-5.3` capped at 1500 and at 4000 tokens
+  returned no content at all and now fails once instead of four times. The other
+  four backends are unprobed; a reason a provider never sends is reported as
+  absent, never as a clean stop.
+- **A refused run no longer leaves the previous run's request body behind.**
+  Build mode writes `<base>-request.json` only after the gate and key checks
+  pass, so at a reused base a refusal used to leave the earlier body looking
+  like this run's. It is now cleared as soon as the output base is known,
+  alongside the stale envelope. Build mode only — in legacy mode that path can
+  be the caller's own input file, which is the documented hand re-run.
+- The launch templates' `rm -f` prefix clears `review-request.json` too, which
+  covers the case the runner cannot: an invocation that dies before it parses
+  its arguments.
+- Docs: `<scratchpad>` named among the FAILED recipe's deliberately generic
+  placeholders; the root README describes `launch.txt` as the authoritative
+  copy of the command rather than claiming byte-equality with a message the
+  reader may no longer have.
+- 144 tests pass (125 + 19 for the above).
+
 ## 0.2.2 — 2026-08
 
 - **z.AI default is now `glm-5.3`.** The access gate that blocked `glm-5.3` on

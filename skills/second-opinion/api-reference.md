@@ -145,12 +145,35 @@ The runner then emits `{"status":"partial", …, "chars":N, "detail":"…"}` wit
 exit code **3**. That is not a failure — it is real model output that stops
 early. Guidance on acting on one lives in the root README.
 
+**A run the provider itself cut short is reported the same way.** The runner
+sends no `max_tokens`, so a backend's server-side output cap can end a review
+mid-sentence while the HTTP call succeeds — which used to land as a short but
+truthful-looking `completed`. The provider says so in its finish reason, and
+the runner reads it: `choices[0].finish_reason` on the OpenAI-compatible
+backends, `candidates[0].finishReason` on gemini, at the choice/candidate level
+in streaming too rather than inside the delta. Whatever it reports is recorded
+in the envelope as `finish_reason`, lowercased. Only a **cap** reason —
+`length`, or gemini's `MAX_TOKENS` — downgrades the run to `partial`; anything
+else (`content_filter` and friends) stays `completed` with the reason visible,
+because `partial` instructs the reader to discard the last finding and a false
+`partial` therefore destroys real work.
+
+Verified 2026-08-20. Wire shape: z.AI `glm-5.3` (`"length"`) and
+`gemini-3.1-pro-preview` (`"MAX_TOKENS"`), both delivered in the same SSE event
+as the usage totals. End to end through the runner: `kimi-k3` capped at 300
+tokens returned `partial`, exit 3, `finish_reason: "length"`, with 1320
+characters of real review on disk cut mid-sentence — the same run would have
+reported `completed` before this release. The other four backends are unprobed;
+a reason a provider never sends is reported as absent, never as a clean stop.
+
 Wire details, if debugging: OpenAI-compatible backends take `stream: true` in
 the body (the runner injects it, along with `stream_options.include_usage` so
 the final event carries token counts) and emit `choices[0].delta.content`,
-terminated by `data: [DONE]`. Gemini instead needs a different verb and query
-param — `:streamGenerateContent?alt=sse` (the runner rewrites the URL) — and
-emits `candidates[0].content.parts[].text` with no `[DONE]` sentinel.
+terminated by `data: [DONE]`. That trailing usage event carries `choices: []`,
+so the finish reason arrives one event earlier. Gemini instead needs a
+different verb and query param — `:streamGenerateContent?alt=sse` (the runner
+rewrites the URL) — and emits `candidates[0].content.parts[].text` with no
+`[DONE]` sentinel.
 
 API keys (each must be exported in the environment; the runner refuses with a
 `usage_error` naming the missing var): `MOONSHOT_API_KEY`, `OPENAI_API_KEY`,
@@ -173,8 +196,8 @@ for the on-disk states before a terminal outcome is reached).
 
 | status | exit | fields |
 |---|---|---|
-| `completed` | 0 | `provider`, `model`, `http_status`, `attempts`, `usage`, `text_path`, `chars`, `log_path` |
-| `partial` | 3 | same, plus `detail` — real text on disk, cut short |
+| `completed` | 0 | `provider`, `model`, `http_status`, `attempts`, `usage`, `text_path`, `chars`, `log_path`, and `finish_reason` when the provider reported one |
+| `partial` | 3 | same, plus `detail` — real text on disk, cut short: the stream broke, or `finish_reason` says the output hit the model's token cap |
 | `failed` | 1 | `provider`, `model`, `error_class`, `http_status`, `attempts`, `detail`, `raw_path`, `log_path` |
 | `usage_error` | 2 | `detail` — bad argument, missing file, unset key, **or a gate refusal**; no request was attempted |
 
@@ -204,15 +227,23 @@ directly:
 ### Error classes
 
 Deterministic — failed fast, never retried: `bad_request`, `auth`, `not_found`,
-`client_error`, `timeout_budget`, `internal`.
+`client_error`, `timeout_budget`, `output_cap`, `internal`.
 Transient — retried up to `ATTEMPTS` times: `rate_limit`, `server_error`,
 `network`, `timeout`, `empty`, `bad_response`.
 
 `empty` = HTTP 200 with no extractable text. `bad_response` = a non-JSON body.
 `timeout_budget` = the full `MAX_TIME` elapsed without a single byte, which means
 the budget is too small rather than the call being unlucky — raise `MAX_TIME`
-instead of retrying. `internal` = an unexpected exception in the runner itself;
-the envelope still arrives so the caller never sees a bare traceback.
+instead of retrying. `output_cap` = an empty 200 whose `finish_reason` says the
+model reached its output-token cap: reasoning runs first, so a small enough cap
+is spent entirely on thinking and no review is ever produced. Deterministic for
+the same reason `timeout_budget` is — the retry sends the identical request and
+burns the identical budget. Measured 2026-08-20: `glm-5.3` capped at 1500 tokens
+returned zero content at caps of both 1500 and 4000 tokens, four consecutive
+attempts each before this class existed. Lower the reasoning effort, shorten the
+prompt, or route elsewhere. `internal` = an unexpected exception in
+the runner itself; the envelope still arrives so the caller never sees a bare
+traceback.
 
 ## OpenAI-compatible backends (Kimi, OpenAI, DeepSeek, xAI, z.AI, MiniMax)
 
@@ -313,7 +344,10 @@ completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
   use. The runner strips those blocks for `provider == "minimax"` (tags can
   span SSE chunks, so it strips after the join and rewrites `-text.md`). A
   stream cut *inside* a think block therefore yields empty text, classified
-  `empty`, not `partial` — correct, since no review had arrived yet.
+  `empty`, not `partial` — correct, since no review had arrived yet. If the
+  emptiness comes from the token cap rather than a cut — thinking ran to the
+  cap and the review never started — it is `output_cap` instead, and not
+  retried.
 - `reasoning_effort` support is unverified on both — omit the field there
   (defaults are sane; see latencies above). This is the fork's routing rule
   for effort, stated plainly: pass `--effort` for kimi / openai / deepseek /

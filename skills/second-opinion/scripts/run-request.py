@@ -62,14 +62,45 @@ MAX_TIME at all.
 Stdout is EXACTLY one JSON envelope describing the outcome, so the calling agent
 gets a typed result instead of parsing the log file:
   completed:   {"status":"completed","provider","model","http_status","attempts",
-                "usage","text_path","chars","log_path"}
-  partial:     {"status":"partial", ...same..., "detail"}   streamed run cut short
+                "usage","text_path","chars","log_path"[,"finish_reason"]}
+  partial:     {"status":"partial", ...same..., "detail"}   run cut short: the
+                stream was interrupted, or the model hit its output-token cap
   failed:      {"status":"failed","provider","model","error_class","http_status",
                 "attempts","detail","raw_path","log_path"}
   usage_error: {"status":"usage_error","detail"}
 
 Exit codes: 0 = text extracted; 1 = failed after retries; 2 = usage/input error;
 3 = partial text on disk (the review was cut short but is readable).
+
+finish_reason — why the model stopped
+-------------------------------------
+Providers report it in the same place streaming or not, at the choice/candidate
+level rather than inside a streamed delta: `choices[0].finish_reason` on the
+OpenAI-compatible backends, `candidates[0].finishReason` on gemini. Whatever the
+provider sends is recorded in the envelope, lowercased. Verified 2026-08-20 on
+z.AI glm-5.3 ("length") and gemini-3.1-pro-preview ("MAX_TOKENS"), both in the
+same SSE event that carries the usage totals, and end to end on kimi-k3 (a
+capped run returned `partial` with 1320 chars of review on disk); the other four
+backends are unprobed, and an absent reason is reported as absent, never as a
+clean stop.
+
+Only a CAP_FINISH reason downgrades a run to `partial`. An output cut at the
+token cap is a review that stops mid-sentence, and the reader rule for `partial`
+says to discard the last finding — so every other reason (content_filter,
+safety, …) stays `completed` with the reason visible in the envelope. A false
+`partial` would make the caller throw away a real finding; a filtered stop
+reported as complete is visible and costs nothing.
+
+A cap that is hit before ANY review text arrives is a failure, not a partial —
+and a deterministic one, classified `output_cap` and never retried. Reasoning
+runs first on the reasoning-by-default backends, so a small enough cap is spent
+entirely on thinking and the content comes back empty; an identical retry burns
+an identical budget. Measured 2026-08-20: z.AI glm-5.3 produced zero content at
+caps of both 1500 and 4000 tokens, four attempts running before this class
+existed, each one billed.
+
+The runner sends no max_tokens of its own, so a cap here is always the
+provider's server-side default.
 
 The same envelope is also written to <base>-envelope.json
 -------------------------------------------------------
@@ -164,6 +195,12 @@ ENVELOPE_PATH = None
 
 # Error classes that are worth retrying. "auth" is decided per-message below.
 RETRYABLE = {"rate_limit", "server_error", "network", "timeout", "empty", "bad_response"}
+
+# Finish reasons meaning the output was cut at the model's token cap, normalized
+# to lowercase: the OpenAI-compatible backends say "length", gemini "MAX_TOKENS".
+# Deliberately an allowlist, not "anything that isn't a clean stop" — see
+# "finish_reason" in the module docstring.
+CAP_FINISH = {"length", "max_tokens"}
 
 # --- gate thresholds (see module docstring) ---
 GATE_BYTES = 32768
@@ -408,6 +445,47 @@ def extract_text(provider, parsed):
         return ""
 
 
+def finish_reason(provider, obj):
+    """Normalized finish reason from a response body or one SSE event, or "".
+
+    The same field serves both: `choices[0].finish_reason` on the
+    OpenAI-compatible backends, `candidates[0].finishReason` on gemini — at the
+    choice/candidate level, not inside a streamed delta. Most SSE events omit it
+    (and an include_usage event carries no choices at all), so "" means "not
+    reported here", never "stopped cleanly".
+    """
+    try:
+        if provider == "gemini":
+            reason = (obj.get("candidates") or [{}])[0].get("finishReason")
+        else:
+            reason = (obj.get("choices") or [{}])[0].get("finish_reason")
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return str(reason).strip().lower() if reason else ""
+
+
+def cap_detail(reason):
+    """The `partial` detail for output cut at the model's output-token cap."""
+    return ('output stopped at the model\'s token cap (finish_reason "%s") — the '
+            "review is cut off, not finished. Re-run with a shorter prompt, or "
+            "on a backend whose cap fits the review." % reason)
+
+
+def cap_exhausted_detail(reason):
+    """The `output_cap` detail: the cap was reached before any review arrived.
+
+    Observed 2026-08-20 on z.AI glm-5.3 capped at 1500 tokens: reasoning
+    consumed the whole allowance and the content was empty, four times in a
+    row. An empty 200 is normally transient, but this one is not — the retry
+    sends the identical request and burns the identical budget.
+    """
+    return ('the model reached its output-token cap (finish_reason "%s") before '
+            "emitting any review text — the whole allowance went to reasoning. "
+            "Retrying sends the identical request and truncates identically: "
+            "lower the reasoning effort, shorten the prompt, or route to "
+            "another backend." % reason)
+
+
 def error_detail(parsed, raw=b""):
     """Best-effort human-readable error string from a response body."""
     if isinstance(parsed, dict):
@@ -467,11 +545,13 @@ def sse_delta(provider, event):
 def stream_sse(resp, provider, text_path, logline, deadline_ts):
     """Consume an SSE body, writing text to text_path as it arrives.
 
-    Returns (text, usage, stop) — stop is None on a clean end, else a string
-    naming why it ended early. Whatever arrived before an interruption is
-    already on disk and is returned, so a partial review is never lost.
+    Returns (text, usage, stop, finish) — stop is None on a clean end, else a
+    string naming why it ended early; finish is the provider's last reported
+    finish reason, "" if it never sent one. Whatever arrived before an
+    interruption is already on disk and is returned, so a partial review is
+    never lost.
     """
-    chunks, usage, stop = [], {}, None
+    chunks, usage, stop, finish = [], {}, None, ""
     out = open(text_path, "w")
     try:
         for raw in resp:
@@ -489,6 +569,9 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
             except ValueError:
                 continue
             piece, u = sse_delta(provider, event)
+            reason = finish_reason(provider, event)
+            if reason:
+                finish = reason  # last non-empty wins; most events carry none
             if u:
                 usage = u
             if piece:
@@ -502,9 +585,11 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
     finally:
         out.close()
     text = "".join(chunks)
-    logline("stream: %d chars, %d chunks%s" %
-            (len(text), len(chunks), "" if stop is None else " — " + stop))
-    return text, usage, stop
+    logline("stream: %d chars, %d chunks%s%s" %
+            (len(text), len(chunks),
+             " finish_reason=" + finish if finish else "",
+             "" if stop is None else " — " + stop))
+    return text, usage, stop, finish
 
 
 def backoff(attempt, retry_after, logline, deadline_ts):
@@ -563,6 +648,17 @@ def main():
         os.remove(ENVELOPE_PATH)
     except OSError:
         pass
+
+    # Same reasoning for the built request body, which build mode writes only
+    # after the gate and the key check pass: a refused run must not leave the
+    # PREVIOUS run's body behind looking like this one's. Build mode only —
+    # in legacy mode <base>-request.json can be the caller's own input file,
+    # which is exactly the documented hand re-run of a built body.
+    if build:
+        try:
+            os.remove(base + "-request.json")
+        except OSError:
+            pass
 
     # New in 0.2.0, both modes: the runner must not fail on a not-yet-created
     # output directory. `or "."` guards a bare relative base
@@ -756,8 +852,8 @@ def main():
             with urllib.request.urlopen(req, timeout=attempt_timeout, context=ctx) as resp:
                 status = resp.getcode()
                 if stream:
-                    text, usage, stop = stream_sse(resp, provider, text_path,
-                                                   logline, deadline_ts)
+                    text, usage, stop, finish = stream_sse(
+                        resp, provider, text_path, logline, deadline_ts)
                     if provider == "minimax" and "<think>" in text:
                         # tags can span SSE chunks, so strip after the join and
                         # rewrite the file so text_path matches the envelope
@@ -766,20 +862,35 @@ def main():
                             f.write(text)
                         logline("stripped <think> block: %d chars remain" % len(text))
                     if text:
-                        kind = "completed" if stop is None else "partial"
+                        # An interrupted stream is cut short whatever the model
+                        # meant to do; a cap truncation is the same outcome
+                        # reported by the provider instead of observed here.
+                        kind, detail = "completed", None
+                        if stop is not None:
+                            kind, detail = "partial", stop
+                        elif finish in CAP_FINISH:
+                            kind, detail = "partial", cap_detail(finish)
                         logline("usage: %s" % json.dumps(usage))
                         logline("%s attempt %d" % (kind.upper(), attempt))
                         envelope = {"status": kind, "provider": provider, "model": model,
                                     "http_status": status, "attempts": attempt,
                                     "usage": usage, "text_path": text_path,
                                     "chars": len(text), "log_path": log_path}
-                        if kind == "partial":
-                            envelope["detail"] = stop
-                            emit(envelope, 3)
-                        emit(envelope, 0)
+                        if finish:
+                            envelope["finish_reason"] = finish
+                        if detail is not None:
+                            envelope["detail"] = detail
+                        emit(envelope, 3 if kind == "partial" else 0)
                     # A 200 stream that yielded no text at all — treat as empty
-                    # (retryable) exactly like the non-streaming case.
+                    # (retryable) exactly like the non-streaming case, unless
+                    # the provider says the cap is why, which makes it
+                    # deterministic.
                     raw = b""
+                    if stop is None and finish in CAP_FINISH:
+                        last = {"error_class": "output_cap", "http_status": status,
+                                "detail": cap_exhausted_detail(finish)}
+                        logline("deterministic output_cap — not retrying")
+                        break
                     last = {"error_class": "empty", "http_status": status,
                             "detail": stop or "stream produced no text"}
                     logline("empty: %s" % last["detail"])
@@ -831,17 +942,32 @@ def main():
             text = extract_text(provider, parsed)
             if provider == "minimax":
                 text = strip_think(text)
+            finish = finish_reason(provider, parsed)
             if text:
                 with open(text_path, "w") as f:
                     f.write(text + "\n")
                 usage = parsed.get("usageMetadata") or parsed.get("usage") or {}
+                kind = "partial" if finish in CAP_FINISH else "completed"
                 logline("usage: %s" % json.dumps(usage))
-                logline("SUCCESS attempt %d" % attempt)
-                emit({"status": "completed", "provider": provider, "model": model,
-                      "http_status": status, "attempts": attempt, "usage": usage,
-                      "text_path": text_path, "chars": len(text),
-                      "raw_path": raw_path, "log_path": log_path}, 0)
-            error_class, detail = "empty", error_detail(parsed, raw) or "empty response text"
+                logline("%s attempt %d%s"
+                        % ("SUCCESS" if kind == "completed" else "PARTIAL", attempt,
+                           " finish_reason=" + finish if finish else ""))
+                envelope = {"status": kind, "provider": provider, "model": model,
+                            "http_status": status, "attempts": attempt, "usage": usage,
+                            "text_path": text_path, "chars": len(text),
+                            "raw_path": raw_path, "log_path": log_path}
+                if finish:
+                    envelope["finish_reason"] = finish
+                if kind == "partial":
+                    envelope["detail"] = cap_detail(finish)
+                emit(envelope, 3 if kind == "partial" else 0)
+            # 200 with no extractable text: normally transient, but not when
+            # the provider says the cap is why — see cap_exhausted_detail.
+            if finish in CAP_FINISH:
+                error_class, detail = "output_cap", cap_exhausted_detail(finish)
+            else:
+                error_class = "empty"
+                detail = error_detail(parsed, raw) or "empty response text"
         else:
             error_class, detail = classify(status, parsed, raw)
 

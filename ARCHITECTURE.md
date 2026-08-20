@@ -106,7 +106,8 @@ Lifetime of a run's files:
 
 ```
     prompt.txt, launch.txt written by the fork         (before the runner starts)
-t0  output base known → any previous envelope removed
+t0  output base known → any previous envelope removed, and (build mode only)
+    any previous -request.json with it, so a refused run leaves neither
     (build mode only) gate + key checks pass → -request.json written
 t1  pid file written                              [pid]
 t2  attempts, streaming                           [pid] [text ▓▓▓░░ growing]

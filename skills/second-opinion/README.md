@@ -37,8 +37,9 @@ session's model — it only does plumbing, and the review's quality comes from
 the backend you route to, not from it.
 
 Responses stream, which mostly matters when something goes wrong. A review cut
-short by a timeout still leaves everything it had written on disk, reported as
-status `partial` in the envelope — see the root README's ["Using a partial
+short — by a timeout, or by the backend's own output-token cap — still leaves
+everything it had written on disk, reported as status `partial` in the envelope
+— see the root README's ["Using a partial
 review"](../../README.md#using-a-partial-review) for how to act on one.
 
 The runner (`scripts/run-request.py`, stdlib Python — no dependencies) prints a
