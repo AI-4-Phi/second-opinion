@@ -152,11 +152,12 @@ only thing that actually bounds a streamed run.
 
 Retries: up to 4 attempts. Transient failures (429, 5xx, network, timeout,
 empty/garbled body) back off ATTEMPT*15s; 429 honors a capped Retry-After.
-Deterministic failures (400 bad request, 404, a genuine 401/403 auth error) fail
-fast with no wasted attempts. The one exception is OpenAI's *flaky* 401
-"insufficient permissions" on ~50 KB+ inputs, which is transient and IS retried;
-a model the key's tier does not include (e.g. gpt-5.6-luna on some accounts)
-returns that message on all 4 attempts and then fails.
+Deterministic failures (400 bad request, 404, a genuine 401/403 auth error,
+plus timeout_budget and output_cap above) fail fast with no wasted attempts.
+The one exception is OpenAI's *flaky* 401 "insufficient permissions" on ~50 KB+
+inputs, which is transient and IS retried; a model the key's tier does not
+include (e.g. gpt-5.6-luna on some accounts) returns that message on all 4
+attempts and then fails.
 
 Stdlib only (urllib, json, ssl) — no dependencies, no venv.
 """

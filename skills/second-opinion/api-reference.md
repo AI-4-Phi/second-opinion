@@ -311,8 +311,8 @@ backend's default without editing the skill, set
 | OpenAI | `gpt-5.6-terra` | balanced, ~gpt-5.5-level at half price |
 | OpenAI | `gpt-5.6-luna` | fast/cheap (tier-gated: not enabled on every key — see the flaky-401 section) |
 | OpenAI | `gpt-5.5` | prior OpenAI flagship |
-| DeepSeek | `deepseek-v4-pro` | 1M ctx; supports `reasoning_effort: high`/`xhigh` |
-| DeepSeek | `deepseek-v4-flash` | cheapest useful review (~$0.14/M in); 1M ctx |
+| DeepSeek | `deepseek-v4-pro` | 1M ctx; accepts `reasoning_effort: high`/`xhigh` (verified 2026-08-22 — see "`reasoning_effort`" below) |
+| DeepSeek | `deepseek-v4-flash` | cheapest useful review ($0.44/M in, $0.22 off-peak); 1M ctx (verified 2026-08-22) |
 | xAI | `grok-4.5` | xAI flagship; 500k ctx |
 | xAI | `grok-4.3` | 1M ctx, ~half price — long documents |
 | z.AI | `glm-5.3` | newest *accessible* on this endpoint's `/models` (live completion verified 2026-08-20) |
@@ -322,8 +322,11 @@ backend's default without editing the skill, set
 Naming traps (verified): Kimi K3 has only the one id `kimi-k3` (do not use the
 K2.x `thinking` parameter); there is no bare `gpt-5.6` (only `-sol`/`-terra`/`-luna`);
 `gpt-5.5-pro` is Responses-API-only and not wired in; DeepSeek's old
-`deepseek-chat`/`deepseek-reasoner` aliases are deprecated as of 2026-07-24 —
-use the `deepseek-v4-*` names; ignore xAI's `grok-4.20-*`, `grok-build-*`, and
+`deepseek-chat`/`deepseek-reasoner` aliases are gone from `/models` but still
+answer — they silently resolve to `deepseek-v4-flash` (the response's `model`
+field proves it, verified 2026-08-22), so asking for the "reasoner" quietly
+buys the cheap tier: always name a `deepseek-v4-*` id; ignore DeepSeek's
+`deepseek-v4-flash-vision-exp` and xAI's `grok-4.20-*`, `grok-build-*`, and
 `grok-imagine-*` entries. For z.AI and MiniMax, `GET /models` on the endpoint
 host lists the candidates for *your* key — but **a listing is not access**, so
 before promoting a newer id, run one live completion on it: `glm-5.3` was
@@ -391,16 +394,36 @@ completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
 
 ### `reasoning_effort`
 
-OpenAI gpt-5.x and DeepSeek v4-pro accept `"reasoning_effort"` in the request
-body (`low`/`medium`/`high`; DeepSeek pro also `xhigh`). Kimi `kimi-k3` accepts
+OpenAI gpt-5.x and both DeepSeek v4 models accept `"reasoning_effort"` in the
+request body (`low`/`medium`/`high`; DeepSeek also `xhigh`). Kimi `kimi-k3` accepts
 `low`/`high`/`max` (no `medium`) and always reasons regardless.
 
-Defaults differ in a way that matters: OpenAI and DeepSeek default to a middle
-tier, so omitting the field is safe there. **`kimi-k3` defaults to `max`**
+Defaults differ in a way that matters: OpenAI defaults to a middle tier, so
+omitting the field is safe there; DeepSeek's unset default sits with its
+*upper* tiers, not the middle (measured below). **`kimi-k3` defaults to `max`**
 server-side, so an unset effort in a legacy or hand-built body is a max-effort
 call — build mode's default resolution covers this for `kimi-k3` (see "Model
 and effort resolution" above), but always set it explicitly when hand-building
 a body or overriding to a different model.
+
+**DeepSeek `deepseek-v4-pro`, measured 2026-08-22** (identical prompt file,
+repeated runs). Every level — `low`, `medium`, `high`, `xhigh` — returns 200 and
+reasons (`reasoning_tokens` > 0 throughout), so the flag is accepted, not
+ignored. What separates them on the wire is a fixed server-side injection:
+`low` bills 85 prompt tokens while `medium`/`high`/`xhigh` **and an omitted
+field** all bill exactly 164 on the same file — a constant 79-token difference,
+not a scaling one: an unrelated 7-token prompt reproduces it exactly (7 vs 86).
+So omitting is the *upper* behavior here, not a middle tier, and `low` is the
+only setting that opts out.
+Reasoning volume does not rank the tiers — `low` spanned 530–1,239 reasoning
+tokens across three runs and `high` spanned 835–2,792, overlapping heavily — so
+treat DeepSeek effort as roughly on/off (`low` vs everything else) rather than
+as a dial, and don't read a single run's token count as evidence a level "took".
+`deepseek-v4-flash` matches `-pro` on every point above, `xhigh` included (both
+re-verified 2026-08-22). Unlike Kimi's, DeepSeek's `/models` entries carry no
+effort metadata at all — just `id`/`object`/`owned_by` — so the runner's
+unset-effort protection, which keys on a reported `default_effort`, has nothing
+to key on here; passing `--effort` explicitly is what covers DeepSeek.
 
 Raise effort for debugging, edge-case analysis, and hard problems, and note that
 a high-effort setting on a large input routinely runs 5–30 minutes — which is

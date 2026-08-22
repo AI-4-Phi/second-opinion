@@ -20,3 +20,17 @@ Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
   duplicate.
 - strip_think() is minimax-scoped by design — the verified provider behavior
   behind that lives in its docstring in run-request.py; don't restate it here.
+- Settled; don't re-propose (reasoning in the 0.1.2/0.2.0 commits): a fifth
+  `status: "running"` envelope — it makes "an envelope exists" mean "started
+  or ended" and destroys the invariant every consumer is written against (if
+  liveness is ever wanted, a separate `-state.json`, never the envelope);
+  `mkstemp`/`fsync` for the envelope write — `os.replace` gives exactly what
+  the docs claim, "atomically replaced", not "durable" (revisit only if the
+  runner ever writes into a shared directory); a launch-epoch or pid field in
+  the envelope — the launch command's `rm -f` prefix already gets that
+  property; `--system-file` or any other request-shape flag in build mode —
+  legacy mode is the escape hatch.
+- The fork's no-shell guarantee covers only tools this plugin can name. A
+  session supplying exec-capable MCP tools is outside any disallow list's
+  reach; SKILL.md's prose rule — if a tool would run, schedule, or delegate
+  something, it is not yours to use — is what covers those.

@@ -80,7 +80,7 @@ main session reroutes.
 
 **Effort, by provider:** pass `--effort` for kimi / openai / deepseek / xai —
 `low` for quick feedback, `high` for plans, debugging, and hard problems
-(kimi has no `medium`; deepseek-v4-pro also takes `xhigh`). **Omit** it for
+(kimi has no `medium`; both deepseek v4 models also take `xhigh`). **Omit** it for
 gemini (the runner refuses the flag — no such API parameter) and for z.AI /
 MiniMax (`reasoning_effort` support unverified there — see
 [api-reference.md](api-reference.md)).

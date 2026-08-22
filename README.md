@@ -157,7 +157,8 @@ whenever you override a default model.
   2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes
      and orphans the runner):
 
-         rm -f <dir>/review-envelope.json <dir>/review-text.md && \
+         rm -f <dir>/review-envelope.json <dir>/review-text.md \
+           <dir>/review-request.json && \
          DEADLINE=5400 python3 <runner> --long \
            --prompt-file <dir>/prompt.txt --effort low kimi <dir>/review
 

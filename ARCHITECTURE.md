@@ -1,7 +1,7 @@
 # Architecture
 
 How the pieces of this plugin fit together, as they are. Descriptive only — no
-proposals. Verified against the shipped code 2026-07-31 (plugin 0.2.0).
+proposals. Verified against the shipped code 2026-08-20 (plugin 0.2.3).
 
 For what the skill *should* do, read
 [SKILL.md](skills/second-opinion/SKILL.md) — that file is the contract, and this
@@ -86,6 +86,9 @@ Three runtime facts force it:
 So the fork never runs the runner itself: every review is prepared — Written to
 `prompt.txt` and `launch.txt` — and handed to the main session, which launches the
 exact `launch.txt` command as a background Bash task with `--long DEADLINE=5400`.
+The fork cannot block on the runner synchronously instead: fact 1 caps a
+foreground call at 10 minutes while the long path runs `DEADLINE=5400`, so the
+prepared handoff is the only viable shape.
 The runner's gate enforces the same boundary independently and refuses a request
 that does not pass `--long`, because a prose rule gets skipped; in practice that
 gate only ever faces a **direct caller** who drives the runner by hand, bypassing

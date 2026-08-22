@@ -47,7 +47,8 @@ single JSON envelope describing the outcome (`completed`/`partial`/`failed`/
 `usage_error`) so the agent gets a typed result, and it classifies errors:
 deterministic failures (bad model, genuine auth error, malformed request) fail
 fast, while transient ones (rate limits, 5xx, network, empty bodies, OpenAI's
-flaky 401) are retried.
+flaky 401) are retried — an empty body the provider blames on its own
+output-token cap is the exception, and fails once.
 
 ## Where your content goes
 
@@ -73,8 +74,8 @@ default models" below to adapt without waiting for one.
 | OpenAI | `gpt-5.6-sol` | Deepest OpenAI analytical review | `reasoning_effort: high` for hard problems |
 | OpenAI | `gpt-5.6-terra` | Balanced everyday review | ~gpt-5.5-level at half price |
 | OpenAI | `gpt-5.5` | Prior OpenAI flagship | Still strong |
-| DeepSeek | `deepseek-v4-pro` | Independent opinion, cheap deep review | 1M ctx; `reasoning_effort` up to `xhigh`; ~$0.44/M in |
-| DeepSeek | `deepseek-v4-flash` | Cheapest useful review | 1M ctx; ~$0.14/M in |
+| DeepSeek | `deepseek-v4-pro` | Independent opinion, cheap deep review | 1M ctx; `reasoning_effort` up to `xhigh`; $1.32/M in (2026-08) |
+| DeepSeek | `deepseek-v4-flash` | Cheapest useful review | 1M ctx; $0.44/M in (2026-08) |
 | xAI | `grok-4.5` | Independent opinion, flagship | 500k ctx; $2/$6 per M |
 | xAI | `grok-4.3` | Long documents | 1M ctx; ~half the price of 4.5 |
 | z.AI | `glm-5.3` | Independent opinion | Reasons by default; glm-5.x moves fast, but a `/models` listing isn't access — see api-reference.md |

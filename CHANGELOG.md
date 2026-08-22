@@ -115,8 +115,8 @@ concrete, zero-edit command for the main session to run.
 - **Added: `os.makedirs` on the output base.** Both legacy and build mode
   now create missing output directories instead of failing on them.
 - **Added: `<base>-request.json`**, the built request artifact, and
-  **`launch.txt`**, the handoff command — byte-for-byte what the fork's
-  PREPARED message tells the main session to run.
+  **`launch.txt`**, the handoff command the fork's PREPARED message tells
+  the main session to run.
 - **Added: self-clearing launch command.** The command in `launch.txt` opens
   with `rm -f` against the WORKDIR's stale `review-envelope.json` and
   `review-text.md` before it runs, so a second launch against a re-prepared
