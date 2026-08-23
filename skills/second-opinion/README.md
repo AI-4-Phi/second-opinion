@@ -71,7 +71,7 @@ default models" below to adapt without waiting for one.
 | Gemini | `gemini-3.1-pro-preview` | Deepest Gemini review | Thinking model, preview-only tier |
 | Gemini | `gemini-2.5-pro` | Large context / bulk review | 1M tokens, GA/stable, free tier |
 | Gemini | `gemini-3.5-flash` | Fast feedback | Lower latency |
-| OpenAI | `gpt-5.6-sol` | Deepest OpenAI analytical review | `reasoning_effort: high` for hard problems |
+| OpenAI | `gpt-5.6-sol` | Deepest OpenAI analytical review | Flagship; the shared `high` default suits hard problems |
 | OpenAI | `gpt-5.6-terra` | Balanced everyday review | ~gpt-5.5-level at half price |
 | OpenAI | `gpt-5.5` | Prior OpenAI flagship | Still strong |
 | DeepSeek | `deepseek-v4-pro` | Independent opinion, cheap deep review | 1M ctx; `reasoning_effort` up to `xhigh`; $1.32/M in (2026-08) |
@@ -83,6 +83,13 @@ default models" below to adapt without waiting for one.
 
 Kimi is the default but the priciest and slowest (always reasoning); for a quick
 or cheap check reach for `deepseek-v4-flash` or `gemini-3.5-flash` instead.
+
+**Reasoning level.** Every backend but Gemini is asked for
+`reasoning_effort: high`, so depth is the same whichever one you route to —
+`high` is the only level all of them accept (`kimi-k3` and `glm-5.3` have no
+`medium`). Pass `--effort low` for a quick check. Because `high` is a
+long-path level, a run that does not pass `--effort` must also pass `--long`;
+the skill's own launch command always does.
 
 Naming traps and API details: see [api-reference.md](api-reference.md).
 
@@ -96,12 +103,12 @@ When a provider ships a new model, set an env var instead of editing the skill:
 The override is honored by the runner at launch, in build mode — not by the
 skill. When the skill composes a launch command it only ever adds `--model`
 if the user asked for a specific non-default model; an env-var override takes
-effect on its own, with no `--model` flag needed. One caveat: the runner's
-protection against accidental top-effort runs is model-keyed, not
-provider-keyed, so it doesn't follow an override to a different model — the
-skill already passes `--effort` explicitly for kimi/openai/deepseek/xai, so
-this mainly matters when driving the runner by hand: set
-`--effort`/`reasoning_effort` yourself whenever you override a default model.
+effect on its own, with no `--model` flag needed. Effort needs no special
+handling: the runner's default is keyed to the provider, not to the model id,
+so an overridden model gets the same `reasoning_effort: high`. The one thing to
+know is that the override must point at a model that *takes* that parameter —
+if it doesn't, the provider answers 400 and the runner reports `bad_request`
+naming it.
 Details: [api-reference.md](api-reference.md#model-and-effort-resolution-build-mode).
 
 ## Requirements

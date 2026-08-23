@@ -17,8 +17,9 @@ Usage (legacy mode — bring-your-own request body):
   --model      build mode: override the model (else SECOND_OPINION_<PROVIDER>_MODEL,
                else DEFAULT_MODELS). Legacy mode never reads that env var.
   --effort     build mode: low|medium|high|xhigh|max (case-insensitive).
-               Omitted + resolved model in TOP_EFFORT_BY_DEFAULT -> "low" is
-               injected. gemini has no such parameter and refuses the flag.
+               Omitted -> DEFAULT_EFFORT ("high") is injected for every
+               provider that has the parameter. Pass --effort low for a quick
+               check. gemini has no such parameter and refuses the flag.
   --long       acknowledge this is a long-path request (see "The gate" below)
   --no-stream  disable streaming (see "Streaming" below); rarely wanted
 
@@ -54,7 +55,13 @@ conditions:
     not set reasoning_effort (kimi-k3 and both deepseek v4 models) — such a
     request is wire-identical to the explicit high/xhigh/max the line above
     already blocks; kimi-k3 measured at ~460s for a 10 KB prompt vs ~90s at
-    "low".
+    "low". Reachable in legacy mode only: build mode always resolves an effort
+    for these providers.
+
+Since DEFAULT_EFFORT is "high", a build-mode call that does not pass --effort
+trips the first effort condition by design — the default IS a long-path
+request. A direct caller who wants a foreground run passes --effort low; the
+sanctioned flow passes --long and is unaffected.
 
 This is enforced here rather than in SKILL.md prose because prose gates get
 skipped: the failure that motivated it was a 52 KB request started with no
@@ -238,6 +245,14 @@ DEFAULT_MODELS = {
     "gemini":   "gemini-3.1-pro-preview",
 }
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+# One reasoning level for every backend that has the parameter, so a review is
+# comparable across providers instead of landing wherever each vendor's own
+# default happens to sit. "high" is the only level that can be shared: kimi-k3
+# and glm-5.3 have no "medium" (verified from moonshot's /v1/models and z.AI
+# error 1210 respectively), which rules the middle out, and xhigh/max are not
+# offered everywhere. Overridden per call by --effort; "low" is the quick-check
+# opt-out, and gemini is the one provider it never reaches — no such parameter.
+DEFAULT_EFFORT = "high"
 SYSTEM_PROMPT = ("You are an expert reviewer providing a second opinion. "
                  "Be specific, cite evidence, and explain your reasoning.")
 
@@ -346,16 +361,26 @@ def resolve_model(provider, flag_value):
     return DEFAULT_MODELS[provider]
 
 
-def resolve_effort(provider, model, flag_value):
+def resolve_effort(provider, flag_value):
     """Explicit --effort wins (validated case-insensitively, lowercased into
-    the body). Absent + resolved model in TOP_EFFORT_BY_DEFAULT injects "low"
-    — the old 'always set reasoning_effort on kimi-k3' prose rule, now code,
-    keyed to exactly the condition that makes an unset effort dangerous (an
-    override to an unknown model is NOT injected; the documented caveat — set
-    effort explicitly when overriding — covers that). Absent otherwise: omit
-    the field. Per-provider tier validity (kimi has no "medium") is
-    deliberately not checked here: the provider's own 400 surfaces as
-    bad_request, keeping decay-prone tables out of code."""
+    the body). Absent: DEFAULT_EFFORT for every provider but gemini, which has
+    no such parameter.
+
+    Provider-keyed, deliberately — the model is not even a parameter here. The
+    earlier rule was model-keyed because the injection was a *protection*
+    (force "low" so a model that secretly reasons at max cannot run away), and
+    protecting a model whose default you do not know is meaningless.
+    DEFAULT_EFFORT is a *policy* instead: ask every backend for the same level.
+    A policy has no such knowledge prerequisite, so it covers a model reached
+    through SECOND_OPINION_<PROVIDER>_MODEL too. If that model has no
+    reasoning_effort, the provider's own 400 says so immediately as
+    bad_request — loud and one flag from fixed, unlike the silent max-effort
+    run the old rule guarded against.
+
+    Per-provider tier validity is still not checked here (kimi-k3 and glm-5.3
+    have no "medium"): the provider's 400 is the authority, which keeps a
+    decay-prone table out of the code. DEFAULT_EFFORT is chosen to be valid
+    everywhere, so the default path never relies on that."""
     if flag_value is not None:
         if provider == "gemini":
             usage_error("gemini has no reasoning_effort parameter — omit "
@@ -365,9 +390,9 @@ def resolve_effort(provider, model, flag_value):
             usage_error("--effort must be one of %s (got %r)"
                         % ("|".join(EFFORT_LEVELS), flag_value))
         return effort
-    if model in TOP_EFFORT_BY_DEFAULT:
-        return "low"
-    return None
+    if provider == "gemini":
+        return None
+    return DEFAULT_EFFORT
 
 
 def read_prompt_file(path):
@@ -708,7 +733,7 @@ def main():
 
     if build:
         model = resolve_model(provider, opts.get("--model"))
-        effort = resolve_effort(provider, model, opts.get("--effort"))
+        effort = resolve_effort(provider, opts.get("--effort"))
         prompt = read_prompt_file(opts["--prompt-file"])
         request_obj = build_request(provider, model, effort, prompt)
         if provider == "gemini":

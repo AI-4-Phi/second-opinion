@@ -82,13 +82,12 @@ the skill at it with an env var instead of waiting for an update:
     export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,
     export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
-The override is honored by the runner at launch (build mode). One caveat: the
-runner's unset-effort protection (which defaults `kimi-k3` and both DeepSeek
-v4 models to `"low"`) is keyed to the model ids it ships with, not to whatever
-a `SECOND_OPINION_*_MODEL` override points at — the skill already passes
-`--effort` explicitly for kimi/openai/deepseek/xai, so this mainly matters if
-you drive the runner by hand: set `--effort`/`reasoning_effort` yourself
-whenever you override a default model.
+The override is honored by the runner at launch (build mode). Effort follows
+along on its own — the runner asks every backend but Gemini for
+`reasoning_effort: high` unless `--effort` says otherwise, and that is keyed to
+the provider, not to the model id. The one requirement is that the override
+point at a model which takes the parameter; if it doesn't, the provider answers
+400 and the runner reports `bad_request` naming it.
 
 ## Documentation
 
@@ -160,11 +159,11 @@ whenever you override a default model.
          rm -f <dir>/review-envelope.json <dir>/review-text.md \
            <dir>/review-request.json && \
          DEADLINE=5400 python3 <runner> --long \
-           --prompt-file <dir>/prompt.txt --effort low kimi <dir>/review
+           --prompt-file <dir>/prompt.txt kimi <dir>/review
 
-     (swap the provider argument to reroute — kimi/openai/deepseek/xai take
-     `--effort`, gemini/zai/minimax do not; add `--model <id>` for a specific
-     model). If you installed from the marketplace, `<runner>` is
+     (swap the provider argument to reroute; add `--effort low` for a quick
+     check, or `--model <id>` for a specific model. Gemini is the one backend
+     that refuses `--effort`). If you installed from the marketplace, `<runner>` is
      `<claude-config-dir>/plugins/cache/ai4phi/second-opinion/<version>/skills/second-opinion/scripts/run-request.py`;
      from a clone it is `skills/second-opinion/scripts/run-request.py`.
   3. `<dir>/review-envelope.json` appearing IS the completion signal — read

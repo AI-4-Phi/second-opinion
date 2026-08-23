@@ -57,9 +57,9 @@ Per-provider **default models live in the runner**
 resolved at launch: `--model` flag, else `SECOND_OPINION_<PROVIDER>_MODEL`
 from the environment, else the built-in default. So: pass `--model` only when
 the user asked for a specific non-default model; never pass it to re-state a
-default. When a user override env var is in play, the launch should still set
-`--effort` explicitly — the runner's unset-effort protection is keyed to the
-model ids it ships with.
+default. An override env var needs no special handling for effort: the
+runner's default is keyed to the provider, not to the model id, so an
+overridden model gets the same `high`.
 
 **Default backend: Kimi.** Use another when the user asks or for an additional
 independent perspective — seven families means up to seven independent
@@ -72,18 +72,20 @@ main session reroutes.
 | Situation | Prefer |
 |-----------|--------|
 | General analytical review (default) | Kimi |
-| Reasoning/debugging/edge cases | Kimi at `--effort high`, or OpenAI at `--effort high` |
+| Reasoning/debugging/edge cases | Kimi or OpenAI (the default `high` already covers this; `--effort max` on Kimi for the hardest) |
 | File-heavy or long documents | Gemini `--model gemini-2.5-pro`, Kimi, or xAI `--model grok-4.3` (1M ctx) |
-| Fast/cheap feedback | DeepSeek `--model deepseek-v4-flash` or Gemini `--model gemini-3.5-flash` (Kimi is neither) |
+| Fast/cheap feedback | DeepSeek `--model deepseek-v4-flash --effort low`, or Gemini `--model gemini-3.5-flash` (Kimi is neither) |
 | Another independent opinion | Any unused family — different family, different blind spots |
 | No Kimi/OpenAI credits | Gemini (free tier) or DeepSeek (near-free) |
 
-**Effort, by provider:** pass `--effort` for kimi / openai / deepseek / xai —
-`low` for quick feedback, `high` for plans, debugging, and hard problems
-(kimi has no `medium`; both deepseek v4 models also take `xhigh`). **Omit** it for
-gemini (the runner refuses the flag — no such API parameter) and for z.AI /
-MiniMax (`reasoning_effort` support unverified there — see
-[api-reference.md](api-reference.md)).
+**Effort:** the runner sends `reasoning_effort: high` to every backend that
+takes it, so **omit `--effort`** and the review runs at that shared level
+whichever provider you picked. Pass **`--effort low`** only when the user
+wanted a quick or cheap check. Higher than `high` (`xhigh` on deepseek, `max`
+on kimi / z.AI) is for genuinely hard problems and only where the backend
+offers it — `medium` does not exist on kimi or z.AI, so never use it as a
+middle ground. **Never** pass `--effort` for gemini: it has no such parameter
+and the runner refuses the flag.
 
 ## When to Use
 
@@ -133,7 +135,7 @@ FAILED and why.
     target: <one line: what is being reviewed>
     prompt: <WORKDIR>/prompt.txt   (command also saved at <WORKDIR>/launch.txt)
     backend: <provider>, model <id, or "runner default — the envelope reports it">,
-      reasoning_effort <value, or "none — not sent for this provider">
+      reasoning_effort <value, or "runner default high", or "none — gemini">
     MAIN SESSION — launch this as a BACKGROUND Bash task (it may run up to 90 min;
       a foreground call dies at 10 minutes and orphans the runner):
       rm -f <WORKDIR>/review-envelope.json <WORKDIR>/review-text.md \
@@ -151,9 +153,9 @@ FAILED and why.
       failed → error_class bad_request/not_found/genuine auth/timeout_budget/
       output_cap are final — fix what detail names;
       rate_limit/server_error/network/timeout/empty may succeed on relaunch. The
-      prompt file is reusable as-is; the provider argument is swappable (adjust
-      --effort per the swap: kimi/openai/deepseek/xai take it,
-      gemini/zai/minimax do not).
+      prompt file is reusable as-is; the provider argument is swappable (drop
+      --effort when swapping to gemini — it is the one backend that refuses
+      the flag).
       usage_error → nothing was sent; detail names the fix.
     If no envelope appears and the process is gone, review-log.txt says what
       happened. To cancel: kill "$(cat <WORKDIR>/review-pid.txt)"
@@ -177,10 +179,10 @@ gets the same concrete command (whitespace/line-wrapping aside).
          rm -f <dir>/review-envelope.json <dir>/review-text.md \
            <dir>/review-request.json && \
          DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
-           --prompt-file <that file> --effort low kimi <dir>/review
-         (swap the provider argument to reroute — kimi/openai/deepseek/xai take
-         --effort, gemini/zai/minimax do not; add --model <id> for a specific
-         model)
+           --prompt-file <that file> kimi <dir>/review
+         (swap the provider argument to reroute; add --effort low for a quick
+         check, or --model <id> for a specific model. Gemini is the one
+         backend that refuses --effort)
       3. <dir>/review-envelope.json appearing IS the completion signal — read
          its status first; the review lands at review-text.md.
 

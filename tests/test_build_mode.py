@@ -130,36 +130,35 @@ class ResolveModelTests(HelperGuard):
 
 class ResolveEffortTests(HelperGuard):
     def test_explicit_effort_lowercased(self):
-        self.assertEqual(mod.resolve_effort("kimi", "kimi-k3", "LOW"), "low")
-        self.assertEqual(mod.resolve_effort("openai", "gpt-5.6-sol", "max"),
-                         "max")
+        self.assertEqual(mod.resolve_effort("kimi", "LOW"), "low")
+        self.assertEqual(mod.resolve_effort("openai", "max"), "max")
 
     def test_invalid_effort_names_valid_set(self):
-        _, envelope, code = call_helper(mod.resolve_effort,
-                                        "kimi", "kimi-k3", "banana")
+        _, envelope, code = call_helper(mod.resolve_effort, "kimi", "banana")
         self.assertEqual(code, 2)
         self.assertIn("low|medium|high|xhigh|max", envelope["detail"])
 
     def test_gemini_refuses_effort(self):
-        _, envelope, code = call_helper(mod.resolve_effort,
-                                        "gemini", "gemini-3.1-pro-preview",
-                                        "low")
+        _, envelope, code = call_helper(mod.resolve_effort, "gemini", "low")
         self.assertEqual(code, 2)
         self.assertIn("reasoning_effort", envelope["detail"])
 
-    def test_kimi_k3_absent_effort_injects_low(self):
-        self.assertEqual(mod.resolve_effort("kimi", "kimi-k3", None), "low")
+    def test_absent_effort_injects_the_default_everywhere(self):
+        for provider in mod.PROVIDERS:
+            if provider == "gemini":
+                continue
+            self.assertEqual(mod.resolve_effort(provider, None),
+                             mod.DEFAULT_EFFORT, provider)
 
-    def test_deepseek_v4_absent_effort_injects_low(self):
-        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
-            self.assertEqual(mod.resolve_effort("deepseek", model, None),
-                             "low", model)
+    def test_default_effort_is_valid_and_gate_blocking(self):
+        # The one level every effort-capable backend accepts, and — being a
+        # long-path level — one the gate refuses without --long by design.
+        self.assertIn(mod.DEFAULT_EFFORT, mod.EFFORT_LEVELS)
+        self.assertIn(mod.DEFAULT_EFFORT, mod.HIGH_EFFORTS)
 
-    def test_injection_is_model_keyed_not_provider_keyed(self):
-        # An override to a model the runner does not know must NOT be injected.
-        self.assertIsNone(mod.resolve_effort("kimi", "kimi-k4-new", None))
-        self.assertIsNone(mod.resolve_effort("deepseek", "deepseek-v5-new", None))
-        self.assertIsNone(mod.resolve_effort("openai", "gpt-5.6-sol", None))
+    def test_gemini_absent_effort_stays_absent(self):
+        self.assertIsNone(
+            mod.resolve_effort("gemini", None))
 
 
 class ReadPromptFileTests(HelperGuard):
@@ -288,7 +287,7 @@ class ModeShapeTests(_BuildFixture, unittest.TestCase):
         # Proof the two-positional build shape parses and resolves: the
         # failure is the missing key, named with resolved provider AND model.
         envelope = self.assert_usage(
-            ["--prompt-file", self.prompt, "kimi", self.base],
+            ["--long", "--prompt-file", self.prompt, "kimi", self.base],
             contains="MOONSHOT_API_KEY not set")
         self.assertIn("kimi-k3", envelope["detail"])
 
@@ -331,9 +330,19 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
         env.update(env_extra or {})
         with self.patch_provider(provider, url):
             envelope, code = run_main(
-                list(extra_argv) + ["--prompt-file", prompt, provider,
-                                    self.base], env)
+                ["--long"] + list(extra_argv)
+                + ["--prompt-file", prompt, provider, self.base], env)
         return envelope, code
+
+    def run_build_no_long(self, extra_argv=(), provider="kimi",
+                          key=("MOONSHOT_API_KEY", "k")):
+        """Same, minus the --long acknowledgement — for the gate's own tests."""
+        url = self.sse_server()
+        prompt = self.write_prompt()
+        with self.patch_provider(provider, url):
+            return run_main(list(extra_argv) + ["--prompt-file", prompt,
+                                                provider, self.base],
+                            {key[0]: key[1]})
 
     def test_flag_beats_env_beats_default(self):
         envelope, code = self.run_build(
@@ -347,14 +356,15 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
             env_extra={"SECOND_OPINION_KIMI_MODEL": "env-model"})
         self.assertEqual(code, 0)
         self.assertEqual(self.sent()["model"], "env-model")
-        # model-keyed injection: an override away from kimi-k3 gets NO effort
-        self.assertNotIn("reasoning_effort", self.sent())
+        # provider-keyed policy: an override away from kimi-k3 gets the default
+        # too (the old model-keyed protection deliberately did not)
+        self.assertEqual(self.sent()["reasoning_effort"], mod.DEFAULT_EFFORT)
 
     def test_default_model_with_injection(self):
         envelope, code = self.run_build()
         self.assertEqual(code, 0)
         self.assertEqual(self.sent()["model"], "kimi-k3")
-        self.assertEqual(self.sent()["reasoning_effort"], "low")
+        self.assertEqual(self.sent()["reasoning_effort"], mod.DEFAULT_EFFORT)
         self.assertEqual(envelope["model"], "kimi-k3")
 
     def test_deepseek_default_model_with_injection(self):
@@ -362,7 +372,7 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
                                         key=("DEEPSEEK_API_KEY", "k"))
         self.assertEqual(code, 0)
         self.assertEqual(self.sent()["model"], "deepseek-v4-pro")
-        self.assertEqual(self.sent()["reasoning_effort"], "low")
+        self.assertEqual(self.sent()["reasoning_effort"], mod.DEFAULT_EFFORT)
 
     def test_whitespace_env_override_falls_through(self):
         envelope, code = self.run_build(
@@ -372,6 +382,23 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
 
     def test_effort_case_lowered_in_body(self):
         envelope, code = self.run_build(["--effort", "LOW"])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent()["reasoning_effort"], "low")
+
+    def test_default_effort_blocks_without_long(self):
+        # No --effort at all: the injected default is gate-blocking, so a
+        # foreground build run is refused unless it says --long or --effort low.
+        prompt = self.write_prompt()
+        envelope, code = run_main(
+            ["--prompt-file", prompt, "kimi", self.base],
+            {"MOONSHOT_API_KEY": "k"})
+        self.assertEqual(code, 2)
+        self.assertIn("long-path request refused", envelope["detail"])
+        self.assertIn("reasoning_effort=%s" % mod.DEFAULT_EFFORT,
+                      envelope["detail"])
+
+    def test_low_effort_runs_in_the_foreground(self):
+        envelope, code = self.run_build_no_long(["--effort", "low"])
         self.assertEqual(code, 0)
         self.assertEqual(self.sent()["reasoning_effort"], "low")
 
@@ -385,7 +412,7 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
         self.assertIn("kimi-k3", envelope["detail"])
 
     def test_explicit_high_effort_carried_with_long(self):
-        envelope, code = self.run_build(["--effort", "max", "--long"])
+        envelope, code = self.run_build(["--effort", "max"])
         self.assertEqual(code, 0)
         self.assertEqual(self.sent()["reasoning_effort"], "max")
 
@@ -533,21 +560,22 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         prompt = self.write_prompt()
         with self.patch_provider("kimi", url):
             _envelope, code = run_main(
-                ["--prompt-file", prompt, "kimi", self.base],
+                ["--long", "--prompt-file", prompt, "kimi", self.base],
                 {"MOONSHOT_API_KEY": "k"})
         self.assertEqual(code, 0)
         with open(self.artifact) as f:
             artifact = json.load(f)
         self.assertNotIn("stream", artifact)
         self.assertEqual(artifact["model"], "kimi-k3")
-        self.assertEqual(artifact["reasoning_effort"], "low")
+        self.assertEqual(artifact["reasoning_effort"], mod.DEFAULT_EFFORT)
 
     def test_stale_artifact_dropped_when_a_rerun_is_refused(self):
         url = self.sse_server()
         env = {"MOONSHOT_API_KEY": "k"}
         with self.patch_provider("kimi", url):
             _e, code = run_main(
-                ["--prompt-file", self.write_prompt(), "kimi", self.base], env)
+                ["--long", "--prompt-file", self.write_prompt(), "kimi",
+                 self.base], env)
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(self.artifact))
         # a second run at the same base that never reaches the request must not
@@ -565,9 +593,11 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         env = {"MOONSHOT_API_KEY": "k"}
         with self.patch_provider("kimi", url):
             _e, code = run_main(
-                ["--prompt-file", self.write_prompt(), "kimi", self.base], env)
+                ["--long", "--prompt-file", self.write_prompt(), "kimi",
+                 self.base], env)
             self.assertEqual(code, 0)
-            _e, code = run_main(["kimi", self.artifact, self.base], env)
+            _e, code = run_main(["--long", "kimi", self.artifact, self.base],
+                                env)
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(self.artifact))
 
@@ -577,10 +607,11 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         env = {"MOONSHOT_API_KEY": "k"}
         with self.patch_provider("kimi", url):
             _e, code = run_main(
-                ["--prompt-file", prompt, "kimi", self.base], env)
+                ["--long", "--prompt-file", prompt, "kimi", self.base], env)
             self.assertEqual(code, 0)
             first = self.sent(0)
-            _e, code = run_main(["kimi", self.artifact, self.base], env)
+            _e, code = run_main(["--long", "kimi", self.artifact, self.base],
+                                env)
             self.assertEqual(code, 0)
         self.assertEqual(first, self.sent(1))
 
@@ -609,7 +640,7 @@ class MakedirsTests(_BuildFixture, unittest.TestCase):
         base = os.path.join(self.dir.name, "deep", "nested", "out")
         with self.patch_provider("kimi", url):
             envelope, code = run_main(
-                ["--prompt-file", prompt, "kimi", base],
+                ["--long", "--prompt-file", prompt, "kimi", base],
                 {"MOONSHOT_API_KEY": "k"})
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(base + "-envelope.json"))
@@ -647,7 +678,7 @@ class BuildEndToEndTests(_BuildFixture, unittest.TestCase):
         prompt = self.write_prompt()
         with self.patch_provider("kimi", url):
             out, _err, code = run_main_io(
-                ["--prompt-file", prompt, "kimi", self.base],
+                ["--long", "--prompt-file", prompt, "kimi", self.base],
                 {"MOONSHOT_API_KEY": "k"})
         self.assertEqual(code, 0)
         envelope = json.loads(out)
@@ -662,8 +693,8 @@ class BuildEndToEndTests(_BuildFixture, unittest.TestCase):
         prompt = self.write_prompt()
         with self.patch_provider("openai", url):
             out, _err, code = run_main_io(
-                ["--no-stream", "--prompt-file", prompt, "openai", self.base],
-                {"OPENAI_API_KEY": "k"})
+                ["--long", "--no-stream", "--prompt-file", prompt, "openai",
+                 self.base], {"OPENAI_API_KEY": "k"})
         self.assertEqual(code, 0)
         envelope = json.loads(out)
         self.assertEqual(envelope["status"], "completed")

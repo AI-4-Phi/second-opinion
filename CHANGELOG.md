@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.0 — 2026-08
+
+- **One reasoning level for every backend: `reasoning_effort: high`.** Omit
+  `--effort` and the runner now sends `high` to Kimi, OpenAI, DeepSeek, xAI,
+  z.AI and MiniMax alike, instead of leaving each request wherever that
+  vendor's own default happened to sit — which ranged from OpenAI's middle tier
+  to Kimi's `max`. Review depth is now a property of the skill, not of the
+  route. `--effort low` is the quick-check opt-out; `xhigh`/`max` still work
+  where the backend offers them.
+- **`high` because it is the only level everyone accepts.** `kimi-k3` and
+  `glm-5.3` both reject `medium`, so there is no shared middle; `xhigh` and
+  `max` are not offered everywhere. A per-provider mapping would have been a
+  decay-prone tier table, which this runner deliberately does not keep — the
+  provider's own 400 stays the authority on validity.
+- **The default is gate-blocking, on purpose.** `high` is one of the gate's
+  refusal conditions, so a build-mode call that passes no `--effort` is refused
+  in the foreground unless it also passes `--long`. The default genuinely is a
+  5–30 minute request on a large input, and the gate exists to stop exactly
+  that from starting in a tool call that dies at 10 minutes and orphans the
+  runner. The skill's launch command always passes `--long`; a direct caller
+  who wants a foreground run passes `--effort low`.
+- **The injection is now provider-keyed, reversing 0.2.4's model-keyed rule.**
+  That rule was right for what the injection *was* — a protection that forced
+  `"low"` on models known to reason at their top tier, which is meaningless for
+  a model whose default you do not know. This is a policy instead ("ask every
+  backend for the same level"), and a policy has no such prerequisite, so it
+  covers a model reached through `SECOND_OPINION_<PROVIDER>_MODEL` too. If that
+  model has no `reasoning_effort`, the provider answers 400 and the runner
+  reports `bad_request` naming it — loud and one flag from fixed.
+- **z.AI and MiniMax now get an effort too** (they were skipped as "support
+  unverified" since 2026-07-23). Verified 2026-08-23: `glm-5.3` accepts `low`,
+  `high`, `max` and nothing else — `medium` and `xhigh` each return a
+  synchronous 400, error 1210, whose message names the valid set outright.
+  `MiniMax-M3` returns 200 for every level; whether it acts on the value is not
+  established, and sending the shared default is harmless either way.
+- `TOP_EFFORT_BY_DEFAULT` stays, unchanged and gate-only: with build mode
+  always resolving an effort, it now fires solely on a legacy hand-built body
+  that omits the field. `glm-5.3` is deliberately **not** added — its unset
+  default is still unknown, and that set takes positive evidence only.
+- Verified end to end through the runner 2026-08-23: Kimi, OpenAI, z.AI and
+  MiniMax each sent `"high"` and completed, Gemini sent no such field and
+  completed. xAI was not re-probed. 150 tests pass.
+
 ## 0.2.4 — 2026-08
 
 - **The gate no longer waves through an unset DeepSeek effort.** It already

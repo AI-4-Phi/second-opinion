@@ -49,15 +49,29 @@ lowercased into the body before it is sent. Per-provider tier validity is
 below) surfaces as the provider's own 400, classified `bad_request`, rather
 than as a decay-prone table baked into the runner.
 
-**Unset effort is not always neutral.** If `--effort` is omitted and the
-resolved model is in `TOP_EFFORT_BY_DEFAULT` — `kimi-k3`, `deepseek-v4-pro`,
-`deepseek-v4-flash`, the models that reason at the top of their own tier
-ladder when the field is absent — the runner injects `"low"`. This is
-**model-keyed, not provider-keyed**: an override to some other model via
-`SECOND_OPINION_<PROVIDER>_MODEL` is not covered, so nothing is injected for
-it — set `--effort` explicitly whenever overriding a default model.
+**Omitting `--effort` means `DEFAULT_EFFORT`, which is `"high"`.** Every
+provider that has the parameter gets the same level, so a review's depth is a
+property of the skill rather than of whichever vendor default it happened to
+land on. `high` is the only level that can be shared: `kimi-k3` and `glm-5.3`
+have no `"medium"`, which rules out the middle, and `xhigh`/`max` are not
+offered everywhere. Pass `--effort low` for a quick check.
 
-`--effort` on gemini is a usage_error — gemini has no such API parameter.
+This injection is **provider-keyed, not model-keyed** — including for a model
+reached through `SECOND_OPINION_<PROVIDER>_MODEL`. It is a *policy* ("ask every
+backend for the same level"), not the *protection* it used to be ("force `low`
+so a model that secretly reasons at max cannot run away"). A protection needed
+to know the model's own default and so had to skip unknown ids; a policy does
+not. If an overridden model has no `reasoning_effort`, the provider's own 400
+says so at once as `bad_request`.
+
+**The default is deliberately gate-blocking.** `high` is one of the gate's
+refusal conditions, so a build-mode call that passes no `--effort` is refused
+in the foreground unless it passes `--long` — because it genuinely is a
+long-path request. The sanctioned flow always passes `--long`; a direct caller
+who wants a foreground run passes `--effort low`.
+
+`--effort` on gemini is a usage_error, and nothing is injected for it either —
+gemini has no such API parameter.
 
 ## Env vars
 
@@ -213,7 +227,13 @@ running in the background. Blocking conditions (any one is enough):
 - the resolved model is in `TOP_EFFORT_BY_DEFAULT` (`kimi-k3`,
   `deepseek-v4-pro`, `deepseek-v4-flash`) and no `reasoning_effort` was set —
   those models reason at the top of their own tier ladder when the field is
-  absent, which makes the request wire-identical to the condition above.
+  absent, which makes the request wire-identical to the condition above. Only
+  reachable in legacy mode: build mode always resolves an effort.
+
+Because `DEFAULT_EFFORT` is `high`, the second condition fires on **every**
+build-mode call that passes no `--effort`. That is the design, not an
+oversight — the default is a long-path request and the gate says so. `--long`
+or `--effort low` is the answer, depending on which the caller meant.
 
 The refusal names a remedy per condition it hit (trim the prompt below 32768
 bytes; set `reasoning_effort` to `"low"`) — and because the sanctioned flow
@@ -354,12 +374,23 @@ completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
   emptiness comes from the token cap rather than a cut — thinking ran to the
   cap and the review never started — it is `output_cap` instead, and not
   retried.
-- `reasoning_effort` support is unverified on both — omit the field there
-  (defaults are sane; see latencies above). This is the fork's routing rule
-  for effort, stated plainly: pass `--effort` for kimi / openai / deepseek /
-  xai; omit it for gemini (the runner refuses the flag — no such API
-  parameter) and for z.AI / MiniMax (`reasoning_effort` support unverified
-  here, as of 2026-07-23).
+- **Both accept `reasoning_effort`** (verified 2026-08-23; it was carried as
+  unverified from 2026-07-23 until then). `glm-5.3` takes **`low`, `high`,
+  `max` and nothing else** — `medium` and `xhigh` each come back as a
+  synchronous 400, error code 1210, *"This model always engages in thinking and
+  cannot be disabled; please use low, high, or max"*, which names the valid set
+  outright. Validation runs ahead of the rate limiter, so the invalid levels
+  400 on the same key where the valid ones were being 429'd. `MiniMax-M3`
+  returns 200 for every level including `medium` and `xhigh`, so it is
+  permissive; whether it acts on the value is **not** established — one probe
+  gave 28 reasoning tokens at `low`, 430 at `medium` and 52 at `high`, which
+  ranks nothing. Sending the shared default is harmless there and keeps the
+  request shape uniform.
+- z.AI's own unset default is still unknown (the unset probe was rate-limited),
+  so `glm-5.3` is **not** in `TOP_EFFORT_BY_DEFAULT` — that set takes positive
+  evidence only. It costs nothing in build mode, which always resolves an
+  effort now; it means only that a hand-built z.AI body with the field absent
+  is not gate-refused.
 
 ### Kimi `kimi-k3` quirks
 
@@ -397,18 +428,32 @@ completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
 
 ### `reasoning_effort`
 
-OpenAI gpt-5.x and both DeepSeek v4 models accept `"reasoning_effort"` in the
-request body (`low`/`medium`/`high`; DeepSeek also `xhigh`). Kimi `kimi-k3` accepts
-`low`/`high`/`max` (no `medium`) and always reasons regardless.
+Every backend but Gemini takes `"reasoning_effort"`, and the runner sends the
+same `DEFAULT_EFFORT` (`high`) to all of them unless `--effort` says otherwise
+(see "Model and effort resolution" above). Accepted levels, which are **not**
+uniform:
 
-Defaults differ in a way that matters: OpenAI defaults to a middle tier, so
-omitting the field is safe there; DeepSeek's unset default sits with its
-*upper* tiers, not the middle (measured below). **`kimi-k3` defaults to `max`**
-server-side, so an unset effort in a legacy or hand-built body is a max-effort
-call. Build mode's default resolution covers the models known to top out this
-way — `kimi-k3` and both DeepSeek v4 models (see "Model and effort resolution"
-above) — but always set it explicitly when hand-building a body or overriding
-to a different model.
+| Backend | Accepted levels | Verified |
+|---|---|---|
+| Kimi `kimi-k3` | `low`, `high`, `max` — no `medium`; always reasons regardless | 2026-07-20, `GET /v1/models` |
+| OpenAI gpt-5.x | `low`, `medium`, `high` | 2026-07 |
+| DeepSeek v4 (both) | `low`, `medium`, `high`, `xhigh` | 2026-08-22 |
+| z.AI `glm-5.3` | `low`, `high`, `max` — no `medium`, no `xhigh` | 2026-08-23, error 1210 names the set |
+| MiniMax `MiniMax-M3` | every level returns 200; effect unestablished | 2026-08-23 |
+| xAI `grok-4.5` | accepted; the exact set is unverified | — |
+| Gemini | none — no such parameter, and `--effort` is a usage_error | 2026-07 |
+
+`high` is the intersection, which is why it is the shared default. Per-provider
+validity is still not checked in code: an unaccepted level surfaces as the
+provider's own 400, classified `bad_request`.
+
+**Where the vendor defaults sit** — which is what a *legacy* body with the
+field absent gets, since build mode always resolves an effort. They differ
+enough to be the reason a shared default exists at all: OpenAI defaults to a
+middle tier; DeepSeek's unset default sits with its *upper* tiers, not the
+middle (measured below); **`kimi-k3` defaults to `max`** server-side; z.AI's
+and MiniMax's are unknown. So hand-build a body and you inherit whatever the
+vendor chose — always set `reasoning_effort` explicitly there.
 
 **DeepSeek `deepseek-v4-pro`, measured 2026-08-22** (identical prompt file,
 repeated runs). Every level — `low`, `medium`, `high`, `xhigh` — returns 200 and
@@ -427,17 +472,19 @@ as a dial, and don't read a single run's token count as evidence a level "took".
 re-verified 2026-08-22). Unlike Kimi's, DeepSeek's `/models` entries carry no
 effort metadata at all — just `id`/`object`/`owned_by`, so there is no reported
 `default_effort` to key on: both v4 models are in `TOP_EFFORT_BY_DEFAULT` on the
-strength of this wire measurement instead. Build mode injects `"low"` for them
-and the gate refuses an unset-effort hand-built body, exactly as for `kimi-k3`.
-Both re-confirmed end to end through the runner 2026-08-23: on one prompt, 35
-prompt tokens at `low` against 114 both at `xhigh` and with the field absent,
-and the legacy path for `deepseek-v4-pro` with no `reasoning_effort` refused as
-a `usage_error` until `--long`.
+strength of this wire measurement instead, which is what makes the gate refuse
+an unset-effort hand-built body for them exactly as for `kimi-k3`. Re-confirmed
+end to end through the runner 2026-08-23: on one prompt, 35 prompt tokens at
+`low` against 114 both at `xhigh` and with the field absent, and the legacy
+path for `deepseek-v4-pro` with no `reasoning_effort` refused as a
+`usage_error` until `--long`.
 
-Raise effort for debugging, edge-case analysis, and hard problems, and note that
-a high-effort setting on a large input routinely runs 5–30 minutes — which is
-why `reasoning_effort` in `high`/`xhigh`/`max` is one of the gate's blocking
-conditions (see "Envelope, gate, and orphan cleanup" above).
+Note the cost the shared default carries: `high` on a large input routinely
+runs 5–30 minutes, which is why `high`/`xhigh`/`max` is one of the gate's
+blocking conditions (see "Envelope, gate, and orphan cleanup" above) and why
+the default therefore blocks. Drop to `low` for a quick check or a foreground
+run; go above `high`, where the backend offers it, only for genuinely hard
+problems.
 
 ### Flaky OpenAI 401 on large inputs (retried only for `openai`)
 
