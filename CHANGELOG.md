@@ -9,10 +9,9 @@
   2026-08-22: `medium`/`high`/`xhigh` and an omitted field all bill the same
   constant 79-token server-side prompt injection; only `low` opts out —
   re-confirmed through the runner 2026-08-23 at 35 prompt tokens against 114),
-  and
-  that request sailed past. `deepseek-v4-pro` and `deepseek-v4-flash` now join
-  `kimi-k3` in the set, so an unset effort blocks the same way the spelled-out
-  level does, and build mode injects `"low"` for them by default.
+  and that request sailed past. `deepseek-v4-pro` and `deepseek-v4-flash` now
+  join `kimi-k3` in the set, so an unset effort blocks the same way the
+  spelled-out level does, and build mode injects `"low"` for them by default.
 - **The set is now `TOP_EFFORT_BY_DEFAULT`, not `MAX_EFFORT_BY_DEFAULT`.** The
   old name asserted a level that only Kimi has: DeepSeek's ladder tops out at
   `xhigh` and has no `max`. Membership is keyed on the behavior — the model
@@ -21,6 +20,16 @@
   differs per entry, which the code comment records: `kimi-k3` from a reported
   `default_effort` in `GET /v1/models`, the DeepSeek pair from the wire
   measurement above, because DeepSeek's `/models` carries no effort metadata.
+  A constant is all that was renamed: the runner still keeps no per-provider
+  tier table, so `--effort max` on DeepSeek is passed through and the
+  provider's own response is the authority, as before.
+- **One default changed for direct callers.** Build mode with `deepseek` and
+  no `--effort` used to send the field absent — upper-tier reasoning — and now
+  sends `"low"`. Cheap by the same measurement: reasoning volume does not rank
+  DeepSeek's tiers (`low` spanned 530–1,239 reasoning tokens against `high`'s
+  835–2,792, heavily overlapping), so the tiers behave as on/off rather than as
+  a dial. The skill is unaffected — it has always passed `--effort` explicitly
+  for DeepSeek. Pass it yourself to keep the old behavior.
 - Membership stays **model-keyed, not provider-keyed**: an override to an
   unrecognized id via `SECOND_OPINION_DEEPSEEK_MODEL` is still not injected and
   still not gated — set `--effort` explicitly when overriding, exactly as for
