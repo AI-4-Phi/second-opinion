@@ -107,8 +107,11 @@ perspective might surface overlooked issues.
    **diff review** requested without a saved diff file → FAILED naming the
    one-line fix (`git diff > <file>`, re-invoke with that path); you cannot
    run `git diff` and must not reconstruct a diff by Reading files.
-3. **Choose backend and effort** from the routing tables above. Choose a
-   specific model (`--model`) only when the user asked for a non-default one.
+3. **Choose the backend** from the routing table above. Add `--effort` only
+   to depart from the runner's shared `high` — `low` for a quick or cheap
+   check, higher where the backend offers it and the problem earns it (see
+   "Effort" above); never for gemini. Choose a specific model (`--model`) only
+   when the user asked for a non-default one.
 4. **Pick a fresh WORKDIR**: `<session scratchpad>/second-opinion-<slug>`.
    Glob `<session scratchpad>/second-opinion-<slug>*` first; on collision
    append `-2`, `-3`, … until fresh. **Write** the composed prompt (see
@@ -121,8 +124,8 @@ perspective might surface overlooked issues.
    `rm -f` prefix, uses this skill's real absolute directory for
    `<skill-dir>` (your skill-load context names it), includes `--model <id>`
    exactly when step 3 chose a non-default model, includes `--effort <value>`
-   per step 3's provider rule, and contains no placeholders, brackets, or
-   editorial notes.
+   exactly when step 3 departed from the default, and contains no
+   placeholders, brackets, or editorial notes.
 
 ## Final-message contract (mandatory — the only two templates)
 
