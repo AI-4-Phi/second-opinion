@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-08
+
+- **SKILL.md's numbered steps caught up with the shared default.** 0.3.0
+  replaced the per-provider effort rule but left step 3 saying "choose backend
+  and effort from the routing tables" and step 5 saying the emitted command
+  carries `--effort` "per step 3's provider rule" — a rule that no longer
+  existed, so a fork working through the steps was sent looking for guidance
+  the prose above had deleted. Step 3 now says to add `--effort` only when
+  departing from the shared `high`, and step 5 matches. Text the fork reads at
+  runtime, hence its own release rather than a docs commit.
+
 ## 0.3.0 — 2026-08
 
 - **One reasoning level for every backend: `reasoning_effort: high`.** Omit
