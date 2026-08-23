@@ -50,11 +50,12 @@ below) surfaces as the provider's own 400, classified `bad_request`, rather
 than as a decay-prone table baked into the runner.
 
 **Unset effort is not always neutral.** If `--effort` is omitted and the
-resolved model is in `MAX_EFFORT_BY_DEFAULT` (currently just `kimi-k3`, whose
-server-side default is `"max"`), the runner injects `"low"`. This is
+resolved model is in `TOP_EFFORT_BY_DEFAULT` — `kimi-k3`, `deepseek-v4-pro`,
+`deepseek-v4-flash`, the models that reason at the top of their own tier
+ladder when the field is absent — the runner injects `"low"`. This is
 **model-keyed, not provider-keyed**: an override to some other model via
-`SECOND_OPINION_KIMI_MODEL` is not covered, so nothing is injected for it —
-set `--effort` explicitly whenever overriding a default model.
+`SECOND_OPINION_<PROVIDER>_MODEL` is not covered, so nothing is injected for
+it — set `--effort` explicitly whenever overriding a default model.
 
 `--effort` on gemini is a usage_error — gemini has no such API parameter.
 
@@ -209,8 +210,10 @@ running in the background. Blocking conditions (any one is enough):
 
 - the serialized request body is >= 32768 bytes;
 - `reasoning_effort` is `high`, `xhigh`, or `max`;
-- the resolved model is in `MAX_EFFORT_BY_DEFAULT` (currently `kimi-k3`) and
-  no `reasoning_effort` was set — that model's server-side default is `max`.
+- the resolved model is in `TOP_EFFORT_BY_DEFAULT` (`kimi-k3`,
+  `deepseek-v4-pro`, `deepseek-v4-flash`) and no `reasoning_effort` was set —
+  those models reason at the top of their own tier ladder when the field is
+  absent, which makes the request wire-identical to the condition above.
 
 The refusal names a remedy per condition it hit (trim the prompt below 32768
 bytes; set `reasoning_effort` to `"low"`) — and because the sanctioned flow
@@ -383,8 +386,8 @@ completion on a standard API key succeeded. Newest *accessible*: `glm-5.3`
   "Model and effort resolution" above). This measurement is what the gate
   protects everyone else against — a legacy request.json (or any hand-built
   body) for `kimi-k3` with no `reasoning_effort` field trips the gate's
-  "model defaults to max" condition and is refused as a foreground call (see
-  "Envelope, gate, and orphan cleanup" above).
+  unset-effort condition and is refused as a foreground call (see "Envelope,
+  gate, and orphan cleanup" above).
 - **Fixed sampling params:** `temperature=1.0`, `top_p=0.95`, `n=1`,
   `presence_penalty=0`, `frequency_penalty=0` are fixed server-side — omit them
   from the request (the standard request shape above already does).
@@ -402,9 +405,10 @@ Defaults differ in a way that matters: OpenAI defaults to a middle tier, so
 omitting the field is safe there; DeepSeek's unset default sits with its
 *upper* tiers, not the middle (measured below). **`kimi-k3` defaults to `max`**
 server-side, so an unset effort in a legacy or hand-built body is a max-effort
-call — build mode's default resolution covers this for `kimi-k3` (see "Model
-and effort resolution" above), but always set it explicitly when hand-building
-a body or overriding to a different model.
+call. Build mode's default resolution covers the models known to top out this
+way — `kimi-k3` and both DeepSeek v4 models (see "Model and effort resolution"
+above) — but always set it explicitly when hand-building a body or overriding
+to a different model.
 
 **DeepSeek `deepseek-v4-pro`, measured 2026-08-22** (identical prompt file,
 repeated runs). Every level — `low`, `medium`, `high`, `xhigh` — returns 200 and
@@ -421,9 +425,14 @@ treat DeepSeek effort as roughly on/off (`low` vs everything else) rather than
 as a dial, and don't read a single run's token count as evidence a level "took".
 `deepseek-v4-flash` matches `-pro` on every point above, `xhigh` included (both
 re-verified 2026-08-22). Unlike Kimi's, DeepSeek's `/models` entries carry no
-effort metadata at all — just `id`/`object`/`owned_by` — so the runner's
-unset-effort protection, which keys on a reported `default_effort`, has nothing
-to key on here; passing `--effort` explicitly is what covers DeepSeek.
+effort metadata at all — just `id`/`object`/`owned_by`, so there is no reported
+`default_effort` to key on: both v4 models are in `TOP_EFFORT_BY_DEFAULT` on the
+strength of this wire measurement instead. Build mode injects `"low"` for them
+and the gate refuses an unset-effort hand-built body, exactly as for `kimi-k3`.
+Both re-confirmed end to end through the runner 2026-08-23: on one prompt, 35
+prompt tokens at `low` against 114 both at `xhigh` and with the field absent,
+and the legacy path for `deepseek-v4-pro` with no `reasoning_effort` refused as
+a `usage_error` until `--long`.
 
 Raise effort for debugging, edge-case analysis, and hard problems, and note that
 a high-effort setting on a large input routinely runs 5–30 minutes — which is

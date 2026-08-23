@@ -157,6 +157,18 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.kinds({"model": "kimi-k3", "reasoning_effort": "low"}),
                          set())
 
+    def test_deepseek_unset_effort_blocks(self):
+        # An omitted field is wire-identical to xhigh on both v4 models, so it
+        # must block exactly as the explicit level does.
+        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+            self.assertEqual(self.kinds({"model": model}), {"effort"}, model)
+
+    def test_deepseek_low_effort_passes(self):
+        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+            self.assertEqual(
+                self.kinds({"model": model, "reasoning_effort": "low"}),
+                set(), model)
+
     def test_other_model_unset_effort_passes(self):
         self.assertEqual(self.kinds({"model": "gpt-5.6-sol"}), set())
 

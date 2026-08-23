@@ -97,7 +97,7 @@ The override is honored by the runner at launch, in build mode — not by the
 skill. When the skill composes a launch command it only ever adds `--model`
 if the user asked for a specific non-default model; an env-var override takes
 effect on its own, with no `--model` flag needed. One caveat: the runner's
-protection against accidental max-effort runs is model-keyed, not
+protection against accidental top-effort runs is model-keyed, not
 provider-keyed, so it doesn't follow an override to a different model — the
 skill already passes `--effort` explicitly for kimi/openai/deepseek/xai, so
 this mainly matters when driving the runner by hand: set

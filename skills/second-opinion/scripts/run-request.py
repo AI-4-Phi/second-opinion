@@ -17,7 +17,7 @@ Usage (legacy mode — bring-your-own request body):
   --model      build mode: override the model (else SECOND_OPINION_<PROVIDER>_MODEL,
                else DEFAULT_MODELS). Legacy mode never reads that env var.
   --effort     build mode: low|medium|high|xhigh|max (case-insensitive).
-               Omitted + resolved model in MAX_EFFORT_BY_DEFAULT -> "low" is
+               Omitted + resolved model in TOP_EFFORT_BY_DEFAULT -> "low" is
                injected. gemini has no such parameter and refuses the flag.
   --long       acknowledge this is a long-path request (see "The gate" below)
   --no-stream  disable streaming (see "Streaming" below); rarely wanted
@@ -50,10 +50,11 @@ conditions:
 
   * the serialized request body >= 32768 bytes, or
   * reasoning_effort is high / xhigh / max, or
-  * the model's own server-side default effort is the top tier and the request
-    does not set reasoning_effort (currently kimi-k3, whose /v1/models entry
-    reports default_effort "max" — an unset effort there is a max-effort call,
-    measured at ~460s for a 10 KB prompt vs ~90s at "low").
+  * the model reasons at the top of its own tier ladder when the request does
+    not set reasoning_effort (kimi-k3 and both deepseek v4 models) — such a
+    request is wire-identical to the explicit high/xhigh/max the line above
+    already blocks; kimi-k3 measured at ~460s for a 10 KB prompt vs ~90s at
+    "low".
 
 This is enforced here rather than in SKILL.md prose because prose gates get
 skipped: the failure that motivated it was a 52 KB request started with no
@@ -206,10 +207,18 @@ CAP_FINISH = {"length", "max_tokens"}
 # --- gate thresholds (see module docstring) ---
 GATE_BYTES = 32768
 HIGH_EFFORTS = {"high", "xhigh", "max"}
-# Models that reason at the top tier unless told otherwise, so an *unset*
-# reasoning_effort is a long-path request. Verified against GET /v1/models:
-# kimi-k3 reports reasoning_efforts.default_effort == "max".
-MAX_EFFORT_BY_DEFAULT = {"kimi-k3"}
+# Models that reason at the top of their own tier ladder unless told otherwise,
+# so an *unset* reasoning_effort is a long-path request — the same request the
+# gate blocks when the level is spelled out. Keyed on that behavior, not on a
+# level name: the ladders differ (kimi tops out at "max", deepseek at "xhigh").
+# Provenance differs too. kimi-k3: GET /v1/models reports
+# reasoning_efforts.default_effort == "max". DeepSeek: /models carries no
+# effort metadata at all, so both v4 models were measured on the wire instead —
+# an omitted field bills the identical server-side prompt injection as
+# high/xhigh and only "low" opts out (verified 2026-08-22, re-confirmed
+# through this runner 2026-08-23: same prompt, 35 prompt tokens at "low"
+# vs 114 both at "xhigh" and with the field absent).
+TOP_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-v4-flash"}
 
 # --- build mode (0.2.0) ---
 # The runner assembles the request itself from a prompt file; the fork no
@@ -339,7 +348,7 @@ def resolve_model(provider, flag_value):
 
 def resolve_effort(provider, model, flag_value):
     """Explicit --effort wins (validated case-insensitively, lowercased into
-    the body). Absent + resolved model in MAX_EFFORT_BY_DEFAULT injects "low"
+    the body). Absent + resolved model in TOP_EFFORT_BY_DEFAULT injects "low"
     — the old 'always set reasoning_effort on kimi-k3' prose rule, now code,
     keyed to exactly the condition that makes an unset effort dangerous (an
     override to an unknown model is NOT injected; the documented caveat — set
@@ -356,7 +365,7 @@ def resolve_effort(provider, model, flag_value):
             usage_error("--effort must be one of %s (got %r)"
                         % ("|".join(EFFORT_LEVELS), flag_value))
         return effort
-    if model in MAX_EFFORT_BY_DEFAULT:
+    if model in TOP_EFFORT_BY_DEFAULT:
         return "low"
     return None
 
@@ -405,9 +414,10 @@ def gate_reasons(request_obj, size):
     effort = request_obj.get("reasoning_effort")
     if isinstance(effort, str) and effort.lower() in HIGH_EFFORTS:
         reasons.append(("effort", "reasoning_effort=%s" % effort))
-    elif effort is None and model in MAX_EFFORT_BY_DEFAULT:
-        reasons.append(("effort", "%s defaults to reasoning_effort=max server-side "
-                                  "and the request does not set one" % model))
+    elif effort is None and model in TOP_EFFORT_BY_DEFAULT:
+        reasons.append(("effort", "%s reasons at its top tier server-side and "
+                                  "the request does not set reasoning_effort"
+                                  % model))
     return reasons
 
 

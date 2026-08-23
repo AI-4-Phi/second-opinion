@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.2.4 — 2026-08
+
+- **The gate no longer waves through an unset DeepSeek effort.** It already
+  refused a foreground `reasoning_effort` of `high`/`xhigh`/`max`, and it
+  already refused a `kimi-k3` body with the field absent — but on both DeepSeek
+  v4 models an *omitted* field is wire-identical to `xhigh` (measured
+  2026-08-22: `medium`/`high`/`xhigh` and an omitted field all bill the same
+  constant 79-token server-side prompt injection; only `low` opts out —
+  re-confirmed through the runner 2026-08-23 at 35 prompt tokens against 114),
+  and
+  that request sailed past. `deepseek-v4-pro` and `deepseek-v4-flash` now join
+  `kimi-k3` in the set, so an unset effort blocks the same way the spelled-out
+  level does, and build mode injects `"low"` for them by default.
+- **The set is now `TOP_EFFORT_BY_DEFAULT`, not `MAX_EFFORT_BY_DEFAULT`.** The
+  old name asserted a level that only Kimi has: DeepSeek's ladder tops out at
+  `xhigh` and has no `max`. Membership is keyed on the behavior — the model
+  reasons at the top of *its own* ladder when the field is absent — and the
+  gate's refusal message says that rather than naming `max`. Provenance now
+  differs per entry, which the code comment records: `kimi-k3` from a reported
+  `default_effort` in `GET /v1/models`, the DeepSeek pair from the wire
+  measurement above, because DeepSeek's `/models` carries no effort metadata.
+- Membership stays **model-keyed, not provider-keyed**: an override to an
+  unrecognized id via `SECOND_OPINION_DEEPSEEK_MODEL` is still not injected and
+  still not gated — set `--effort` explicitly when overriding, exactly as for
+  Kimi. Unchanged, restated because the set grew.
+- **Ships the DeepSeek corrections made after 0.2.3.** They landed in `skills/`
+  as documentation and so reached no installed profile until now: pricing was
+  stale and the two tiers swapped (flash $0.44/M in, $0.22 off-peak; pro
+  $1.32/M), `xhigh` works on `deepseek-v4-flash` too and not just `-pro`, and
+  `deepseek-chat`/`deepseek-reasoner` are gone from `/models` yet still answer,
+  silently resolving to `deepseek-v4-flash` — so the "reasoner" alias quietly
+  buys the cheap tier.
+- 148 tests pass (four new: the gate on both v4 models with the field unset and
+  with `low`, the `"low"` injection in `resolve_effort`, and a build-mode run
+  observed on the wire).
+
 ## 0.2.3 — 2026-08
 
 - **A review the provider cut off no longer reports as `completed`.** The

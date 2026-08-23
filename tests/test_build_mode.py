@@ -150,9 +150,15 @@ class ResolveEffortTests(HelperGuard):
     def test_kimi_k3_absent_effort_injects_low(self):
         self.assertEqual(mod.resolve_effort("kimi", "kimi-k3", None), "low")
 
+    def test_deepseek_v4_absent_effort_injects_low(self):
+        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+            self.assertEqual(mod.resolve_effort("deepseek", model, None),
+                             "low", model)
+
     def test_injection_is_model_keyed_not_provider_keyed(self):
         # An override to a model the runner does not know must NOT be injected.
         self.assertIsNone(mod.resolve_effort("kimi", "kimi-k4-new", None))
+        self.assertIsNone(mod.resolve_effort("deepseek", "deepseek-v5-new", None))
         self.assertIsNone(mod.resolve_effort("openai", "gpt-5.6-sol", None))
 
 
@@ -350,6 +356,13 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
         self.assertEqual(self.sent()["model"], "kimi-k3")
         self.assertEqual(self.sent()["reasoning_effort"], "low")
         self.assertEqual(envelope["model"], "kimi-k3")
+
+    def test_deepseek_default_model_with_injection(self):
+        envelope, code = self.run_build(provider="deepseek",
+                                        key=("DEEPSEEK_API_KEY", "k"))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent()["model"], "deepseek-v4-pro")
+        self.assertEqual(self.sent()["reasoning_effort"], "low")
 
     def test_whitespace_env_override_falls_through(self):
         envelope, code = self.run_build(

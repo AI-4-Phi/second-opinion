@@ -83,9 +83,9 @@ the skill at it with an env var instead of waiting for an update:
     export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
 The override is honored by the runner at launch (build mode). One caveat: the
-runner's unset-effort protection (which defaults `kimi-k3` to `"low"`) is
-keyed to the model ids it ships with, not to whatever a
-`SECOND_OPINION_*_MODEL` override points at — the skill already passes
+runner's unset-effort protection (which defaults `kimi-k3` and both DeepSeek
+v4 models to `"low"`) is keyed to the model ids it ships with, not to whatever
+a `SECOND_OPINION_*_MODEL` override points at — the skill already passes
 `--effort` explicitly for kimi/openai/deepseek/xai, so this mainly matters if
 you drive the runner by hand: set `--effort`/`reasoning_effort` yourself
 whenever you override a default model.
