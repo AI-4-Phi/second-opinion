@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1 — 2026-09
+
+- **Two requests on one target no longer share a work directory.** SKILL.md
+  step 4 found a fresh WORKDIR with Glob, but Claude Code builds with
+  embedded search (2.1.283 seen) have no Glob or Grep tool, and the fork has
+  no shell. So a second request with the same slug, the usual in-depth review
+  followed by a second in-depth opinion, reused the first one's directory:
+  it overwrote `prompt.txt` and `launch.txt`, and its launch command's
+  `rm -f` deleted the first review. Step 4 now probes each candidate
+  (`second-opinion-<slug>`, then `-2`, `-3`, …) by Reading its `prompt.txt`
+  with `limit: 1`, which works in every build. Verified 2026-09-26 with forks
+  on one target landing in `-2`, then `-3`, each earlier directory untouched.
+  The probe does not cover two forks preparing on the same target at the
+  same moment: prepare those one after the other.
+- SKILL.md and ARCHITECTURE.md now list the fork's tools as Read and Write,
+  plus Glob and Grep in builds that have them.
+
 ## 0.4.0 — 2026-09
 
 - **The default backend is now OpenAI, not Kimi, in two tiers.** Its runner

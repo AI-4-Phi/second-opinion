@@ -27,8 +27,9 @@ anything — no shell, no subagents, no scheduled or delegated work of any kind.
 The execution-capable tools are disallowed here and calls to them are denied;
 do not attempt them, and do not work around a denial with any other tool. This
 rule also covers tools this list has never heard of: if a tool would run,
-schedule, or delegate something, it is not yours to use. Your tools are Read,
-Glob, Grep, and Write; your deliverable is one final message.
+schedule, or delegate something, it is not yours to use. Your tools are Read
+and Write, plus Glob and Grep in builds that have them (some have neither);
+your deliverable is one final message.
 
 `model: sonnet` is deliberate: this fork only does plumbing (read the target,
 compose a prompt, write two files). The *review* comes from the backend the
@@ -130,10 +131,18 @@ perspective might surface overlooked issues.
    "Effort" above); never for gemini. Pass `--model` only in the two cases
    "Available Backends" names: the user named a model, or the chosen routing
    row names a non-default one (in-depth review → `gpt-6-sol`).
-4. **Pick a fresh WORKDIR**: `<session scratchpad>/second-opinion-<slug>`.
-   Glob `<session scratchpad>/second-opinion-<slug>*` first; on collision
-   append `-2`, `-3`, … until fresh. **Write** the composed prompt (see
-   Prompt Construction) to `<WORKDIR>/prompt.txt`. Then **Write the exact
+4. **Pick a fresh WORKDIR.** Candidates, in order:
+   `<session scratchpad>/second-opinion-<slug>`, then the same name with
+   `-2`, `-3`, …. Probe each by **Reading `<candidate>/prompt.txt` with
+   `limit: 1`**:
+   - Read says the file does not exist → fresh; this is your WORKDIR.
+   - Read returns content, or says the file is empty → taken; probe the next.
+   - Anything else → FAILED, `cannot write prompt file: <what Read said>`.
+
+   A taken WORKDIR belongs to an earlier request; reusing it would let your
+   launch command's `rm -f` delete that request's review. **Write** the
+   composed prompt (see Prompt Construction) to `<WORKDIR>/prompt.txt`.
+   Then **Write the exact
    launch command — the same line that goes in the PREPARED message — to
    `<WORKDIR>/launch.txt`**. Write creates the directory for you. No
    heredoc, no escaping, no jq.

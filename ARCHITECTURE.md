@@ -14,7 +14,7 @@ and the envelope/gate/orphan-cleanup facts, read
 | Piece | What it is | Model / runtime |
 |---|---|---|
 | Main session | The conversation the user is in. Invokes the skill, then launches the runner as a background Bash task once the fork hands back a PREPARED command; never reads `SKILL.md` itself. | The session's own model |
-| Forked skill | A subagent started by the invocation. Reads `SKILL.md` and does the plumbing: locate the target, inline it, compose the review prompt, choose backend and effort, Write `prompt.txt` + `launch.txt`, hand back PREPARED (or FAILED). Tools: `Read`, `Glob`, `Grep`, `Write` — no shell, no dispatch (`disallowed-tools` blocks `Bash` and every delegation tool). | `sonnet`, pinned in frontmatter |
+| Forked skill | A subagent started by the invocation. Reads `SKILL.md` and does the plumbing: locate the target, inline it, compose the review prompt, choose backend and effort, Write `prompt.txt` + `launch.txt`, hand back PREPARED (or FAILED). Tools: `Read`, `Write`, plus `Glob` and `Grep` in builds that have them — no shell, no dispatch (`disallowed-tools` blocks `Bash` and every delegation tool). | `sonnet`, pinned in frontmatter |
 | Runner | `scripts/run-request.py`. Stdlib Python, no venv. Dual-mode CLI: build mode composes the request itself from `--prompt-file`/`--model`/`--effort`, legacy mode takes a pre-built `request.json`; either way it calls one provider endpoint, streams the response to disk, and prints one JSON envelope. | `python3` subprocess |
 | Provider | Kimi, Gemini, OpenAI, DeepSeek, xAI, z.AI or MiniMax, over HTTPS. Reads no local files. | External API |
 
@@ -27,7 +27,7 @@ and the envelope/gate/orphan-cleanup facts, read
                  │  ▲  final message ── the only thing the fork PUSHES anywhere
                  ▼  │  (PREPARED, or FAILED)
         ┌──────────────────┐
-        │   forked skill   │  Read, Glob, Grep, Write — no shell, no dispatch
+        │   forked skill   │  Read, Write (+ Glob, Grep if the build has them) — no shell, no dispatch
         └────────┬─────────┘
            Write │
                  ▼
