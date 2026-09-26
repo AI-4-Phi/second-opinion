@@ -173,9 +173,9 @@ FAILED and why.
       DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
         --prompt-file <WORKDIR>/prompt.txt [--model <id>] [--effort <value>] \
         <provider> <WORKDIR>/review
-    outputs: <WORKDIR>/review-envelope.json (the outcome — its appearance after
-      this launch IS the completion signal; read status first), review-text.md
-      (the review), review-log.txt (run/attempt trace)
+    outputs, all next to prompt.txt: review-envelope.json (the outcome — its
+      appearance after this launch IS the completion signal; read status
+      first), review-text.md (the review), review-log.txt (run/attempt trace)
     status guide: completed → read text_path; the review is the deliverable, not
       reproduced or summarized here — treat it as one data point, not authority.
       partial → real output cut early: completed findings are valid; discard the
@@ -188,7 +188,7 @@ FAILED and why.
       the flag).
       usage_error → nothing was sent; detail names the fix.
     If no envelope appears and the process is gone, review-log.txt says what
-      happened. To cancel: kill "$(cat <WORKDIR>/review-pid.txt)"
+      happened. To cancel: kill the pid in review-pid.txt, next to prompt.txt.
 
 The `[--model <id>]` / `[--effort <value>]` brackets show the template's
 general form only — the message you emit contains a concrete command with the
@@ -231,11 +231,24 @@ makes a second opinion worth having.
 
 ## Prompt Construction
 
-Always include: the specific question; the relevant file content inlined; and
-what kind of feedback you want.
+The prompt goes to an outside provider. It has exactly these four parts, in
+this order, and nothing else:
+
+1. **The work**, in a sentence or two, taken from the request and the target.
+2. **The target from step 1, inlined**, however it reached you. Session
+   instructions, CLAUDE.md files, memory, git state and files the request
+   does not name are not part of it.
+3. **Earlier reviews**, when the request or this conversation names them:
+   what that source states about them, e.g. "OpenAI already reviewed this".
+   The routing table tells you what a review would use, not what an earlier
+   one did use.
+4. **The questions**: what kind of feedback you want.
+
+In this shape:
 
     I'm working on [TASK]. My current approach is [APPROACH].
-    Files to review: [INLINE CONTENT]
+    Files to review: [THE TARGET, INLINED]
+    [EARLIER REVIEWS, as the request or conversation states them; omit if none]
     Questions:
     1. What problems do you see with this approach?
     2. What edge cases might I be missing?

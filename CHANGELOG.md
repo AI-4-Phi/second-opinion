@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.2 — 2026-09
+
+- **The review prompt no longer carries unrequested session context.** A
+  fork sees the session's instructions, CLAUDE.md files, CLAUDE.local.md and
+  memory index. Asked to review a project's CLAUDE.md, one fork appended
+  that project's private CLAUDE.local.md "for reference" to a prompt bound
+  for an outside provider (caught before launch). Prompt Construction now
+  states the prompt's parts: the work, the target from step 1, earlier
+  reviews, the questions, and nothing else.
+- **Earlier reviews are described as the request states them.** Asked for a
+  "second in-depth opinion; OpenAI already reviewed", forks told the
+  reviewer the earlier review used `gpt-6-sol` at high effort (2 of 4
+  runs), reading the routing table as a record of what a past review used.
+- **PREPARED no longer leaves `<WORKDIR>` placeholders.** The informational
+  "outputs:" and cancel lines now name their files as next to `prompt.txt`,
+  so only the prompt line and the launch command carry the work directory.
+  Before: 4 of 9 forks left a literal `<WORKDIR>`.
+- Verified 2026-09-26 on five forks with the new text: none left a
+  placeholder, named a prior reviewer's model, or added unrequested context.
+
 ## 0.4.1 — 2026-09
 
 - **Two requests on one target no longer share a work directory.** SKILL.md
