@@ -40,7 +40,11 @@
 - **A fork that cannot read `routing.md` reports FAILED** (`cannot read
   routing file`) instead of routing from memory, and tells the main session
   to reinstall the plugin; the direct skill gives the same instruction.
-- Reviewed by gpt-6-sol and z.AI, then Kimi on the fixes.
+- Reviewed by gpt-6-sol and z.AI, then Kimi on the fixes. Tested with 12
+  forks: all 12 read `routing.md`; all 10 given an earlier review wrote the
+  exact line (0.5.0: 3 of 13 added words); every route as the table gives
+  it (Kimi, z.AI for a document or a third opinion, `gpt-6-sol` for an
+  in-depth review, `--effort low` for a quick check).
 
 ## 0.5.0 — 2026-09
 
