@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **A stream that closes without an end marker is `partial`, not
+  `completed`.** The runner took a quiet EOF after some text as a finished
+  review, so a stream the provider closed early could pass as complete. A
+  clean end now needs `[DONE]` or a finish reason; text followed by neither
+  is reported as `partial` (exit 3) with a `detail` naming the missing
+  marker, and no text at all stays `empty`. A live probe of all seven
+  backends (2026-09-26) found every one sends a finish reason on a clean end,
+  while minimax and gemini never send `[DONE]`, so no backend needs an
+  exception; all seven then completed through the changed runner.
+  api-reference.md no longer says every OpenAI-compatible stream ends with
+  `[DONE]`.
+
 ## 0.5.0 — 2026-09
 
 - **New skill: `/second-opinion:direct`.** It runs in the main session, not

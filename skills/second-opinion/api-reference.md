@@ -183,16 +183,27 @@ Verified 2026-08-20. Wire shape: z.AI `glm-5.3` (`"length"`) and
 as the usage totals. End to end through the runner: `kimi-k3` capped at 300
 tokens returned `partial`, exit 3, `finish_reason: "length"`, with 1320
 characters of real review on disk cut mid-sentence — the same run would have
-reported `completed` before this release. The other four backends are unprobed;
-a reason a provider never sends is reported as absent, never as a clean stop.
+reported `completed` before 0.2.3. The cap reason is unprobed on the
+other four backends; a reason a provider never sends is reported as absent,
+never as a clean stop.
+
+**A stream that closes without an end marker is `partial` too.** A clean end
+carries a marker: the `[DONE]` sentinel or a finish reason. If text arrived
+and the connection then closed quietly with neither, nothing says the provider
+finished, so the runner reports `partial`, its `detail` naming the missing
+marker. With no text at all the run stays `empty`. Probed 2026-09-26, each
+default model on a short prompt: all seven backends send a finish reason on a
+clean end, five of them also `[DONE]`; minimax and gemini never send `[DONE]`,
+so for them the finish reason is the only marker.
 
 Wire details, if debugging: OpenAI-compatible backends take `stream: true` in
 the body (the runner injects it, along with `stream_options.include_usage` so
 the final event carries token counts) and emit `choices[0].delta.content`,
-terminated by `data: [DONE]`. That trailing usage event carries `choices: []`,
-so the finish reason arrives one event earlier. Gemini instead needs a
-different verb and query param — `:streamGenerateContent?alt=sse` (the runner
-rewrites the URL) — and emits `candidates[0].content.parts[].text` with no
+terminated by `data: [DONE]`, except minimax, which just closes after its usage
+event. That trailing usage event carries `choices: []`, so the finish reason
+arrives one event earlier. Gemini instead needs a different verb and query
+param — `:streamGenerateContent?alt=sse` (the runner rewrites the URL) — and
+emits `candidates[0].content.parts[].text` with no
 `[DONE]` sentinel.
 
 API keys (each must be exported in the environment; the runner refuses with a
@@ -217,7 +228,7 @@ for the on-disk states before a terminal outcome is reached).
 | status | exit | fields |
 |---|---|---|
 | `completed` | 0 | `provider`, `model`, `http_status`, `attempts`, `usage`, `text_path`, `chars`, `log_path`, and `finish_reason` when the provider reported one |
-| `partial` | 3 | same, plus `detail` — real text on disk, cut short: the stream broke, or `finish_reason` says the output hit the model's token cap |
+| `partial` | 3 | same, plus `detail` — real text on disk, cut short: the stream broke or closed without an end marker, or `finish_reason` says the output hit the model's token cap |
 | `failed` | 1 | `provider`, `model`, `error_class`, `http_status`, `attempts`, `detail`, `raw_path`, `log_path` |
 | `usage_error` | 2 | `detail` — bad argument, missing file, unset key, **or a gate refusal**; no request was attempted |
 

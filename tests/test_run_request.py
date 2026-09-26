@@ -533,8 +533,9 @@ class EnvelopeTests(_RunnerFixture, unittest.TestCase):
             self.assertEqual(f.read(), "the actual review")
 
     def test_gemini_streaming_rewrites_url(self):
+        # gemini's wire shape: no [DONE]; the last event carries finishReason
         url = self.start_server(lambda h: h.send_sse([
-            {"candidates": [{"content": {"parts": [
+            {"candidates": [{"finishReason": "STOP", "content": {"parts": [
                 {"text": "ignored", "thought": True}, {"text": "review"}]}}],
              "usageMetadata": {"totalTokenCount": 4}}]))
         req = self.write_request({"contents": []})
@@ -547,6 +548,7 @@ class EnvelopeTests(_RunnerFixture, unittest.TestCase):
         self.assertEqual(envelope["status"], "completed")
         self.assertEqual(envelope["model"], "gemini-2.5-pro")
         self.assertEqual(envelope["chars"], len("review"))
+        self.assertEqual(envelope["finish_reason"], "stop")
         path = _Handler.requests[0][0]
         self.assertIn(":streamGenerateContent", path)
         self.assertIn("alt=sse", path)
@@ -811,6 +813,62 @@ class TruncationTests(_RunnerFixture, unittest.TestCase):
         self.assertEqual(envelope["status"], "partial")
         self.assertEqual(envelope["finish_reason"], "max_tokens")
         self.assertEqual(envelope["chars"], len("cut off"))
+
+    # --- a stream that closes cleanly but never says it ended ---
+
+    def test_close_without_an_end_marker_is_partial(self):
+        # no error and no deadline, just EOF after some text: no [DONE] and no
+        # finish reason, so nothing says the provider finished the review
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "finding one, and fin"}}]}]))
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertIn("without an end marker", envelope["detail"])
+        self.assertNotIn("finish_reason", envelope)
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "finding one, and fin")
+
+    def test_gemini_close_without_a_finish_reason_is_partial(self):
+        # gemini never sends [DONE], so its finish reason is the only marker
+        url = self.start_server(lambda h: h.send_sse([
+            {"candidates": [{"content": {"parts": [{"text": "cut"}]}}]}]))
+        req = self.write_request({"contents": []})
+        tmpl = url + "/v1beta/models/{model}:generateContent"
+        with self.patch_provider("gemini", tmpl):
+            envelope, code = run_main(
+                ["gemini", req, self.base, "gemini-3.8-flash"],
+                {"GEMINI_API_KEY": "k"})
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertIn("without an end marker", envelope["detail"])
+
+    def test_minimax_finish_reason_without_done_stays_completed(self):
+        # MiniMax's wire shape: the reason rides on the last content event,
+        # a usage-only event follows, and no [DONE] ever comes
+        url = self.stream([
+            {"choices": [{"delta": {"content": "the "}}]},
+            {"choices": [{"index": 0, "finish_reason": "stop",
+                          "delta": {"content": "review"}}]},
+            {"choices": [], "usage": {"total_tokens": 9}}])
+        req = self.write_request({"model": "MiniMax-M3"})
+        with self.patch_provider("minimax", url):
+            envelope, code = run_main(["minimax", req, self.base],
+                                      {"MINIMAX_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["finish_reason"], "stop")
+        self.assertEqual(envelope["usage"], {"total_tokens": 9})
+        self.assertNotIn("detail", envelope)
+
+    def test_empty_close_without_an_end_marker_stays_empty(self):
+        # no text at all is still `empty` (retryable), with its own detail
+        url = self.stream([{"choices": [{"delta": {"content": ""}}]}])
+        with mock.patch.object(mod.time, "sleep"):
+            envelope, code = self.run_kimi(url)
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["error_class"], "empty")
+        self.assertEqual(envelope["detail"], "stream produced no text")
+        self.assertEqual(envelope["attempts"], 4)
 
     # --- non-streaming ---
 

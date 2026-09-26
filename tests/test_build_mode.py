@@ -438,7 +438,8 @@ class GeminiBuildTests(_BuildFixture, unittest.TestCase):
 
     def run_gemini(self, extra_argv=(), env_extra=None):
         url = self.start_server(lambda h: h.send_sse([
-            {"candidates": [{"content": {"parts": [{"text": "review"}]}}],
+            {"candidates": [{"finishReason": "STOP",
+                             "content": {"parts": [{"text": "review"}]}}],
              "usageMetadata": {"totalTokenCount": 4}}]))
         prompt = self.write_prompt()
         env = {"GEMINI_API_KEY": "k"}
@@ -621,7 +622,8 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
 
     def test_gemini_artifact_reruns_with_model_arg(self):
         url = self.start_server(lambda h: h.send_sse([
-            {"candidates": [{"content": {"parts": [{"text": "r"}]}}]}]))
+            {"candidates": [{"finishReason": "STOP",
+                             "content": {"parts": [{"text": "r"}]}}]}]))
         tmpl = url + "/v1beta/models/{model}:generateContent"
         prompt = self.write_prompt()
         env = {"GEMINI_API_KEY": "k"}

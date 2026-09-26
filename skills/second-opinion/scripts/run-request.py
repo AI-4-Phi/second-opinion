@@ -599,8 +599,13 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
     finish reason, "" if it never sent one. Whatever arrived before an
     interruption is already on disk and is returned, so a partial review is
     never lost.
+
+    A clean end needs an end marker: `[DONE]` or a finish reason. Probed
+    2026-09-26, every backend sends a finish reason on a clean end; minimax
+    and gemini never send `[DONE]`. So text followed by a quiet EOF with
+    neither marker is a stream cut short, not a finished review.
     """
-    chunks, usage, stop, finish = [], {}, None, ""
+    chunks, usage, stop, finish, done = [], {}, None, "", False
     out = open(text_path, "w")
     try:
         for raw in resp:
@@ -612,6 +617,7 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
                 continue  # skip blank lines, comments (":"), and event: fields
             payload = line[5:].strip()
             if payload == "[DONE]":
+                done = True
                 break
             try:
                 event = json.loads(payload)
@@ -633,6 +639,10 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
         stop = "stream interrupted: %s" % str(reason)[:200]
     finally:
         out.close()
+    if stop is None and not done and not finish and chunks:
+        stop = ("stream ended without an end marker (no [DONE], no finish "
+                "reason): the provider closed the connection before saying "
+                "the review was finished")
     text = "".join(chunks)
     logline("stream: %d chars, %d chunks%s%s" %
             (len(text), len(chunks),
