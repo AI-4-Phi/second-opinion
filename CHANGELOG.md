@@ -25,8 +25,23 @@
   although the request had arrived. It now appears once; step 1, "When to
   Use" and the FAILED template refer to that line. The root README's
   troubleshooting no longer calls every no-target FAILED a delivery failure.
+- **The fork no longer relies on the conversation, which it cannot see.**
+  Verified 2026-09-26 for both paths: a fork started by the Skill tool and
+  one started by a typed `/second-opinion` each failed to find a marker
+  placed only in the conversation. Yet step 1 allowed a target "from
+  unambiguous context", routing rule 3 counted reviews "you can see in this
+  conversation", and Prompt Construction part 3 cited "this conversation".
+  All three now use the request alone; a request that points back into the
+  conversation ("the plan we discussed") gets FAILED. The frontmatter
+  description, the only skill text the main session sees, now says to put
+  the target's path and any earlier reviews in the args, and both READMEs'
+  usage examples name a file ("review this draft" gave a fork nothing to
+  find). ARCHITECTURE.md states what a fork sees. Part 3 is now a copy rule:
+  quote the request's words about earlier reviews and add nothing.
 - Verified 2026-09-26 on the final text: 5 of 5 forks on the root README
-  prepared. Across 11 forks with the new prompt rules, none left a
+  prepared; six more forks routed a second in-depth opinion to Kimi (code)
+  and z.AI (document), sent an in-depth review with no earlier one to
+  `gpt-6-sol`, and failed "the plan we just discussed". Across 11 forks with the new prompt rules, none left a
   placeholder or added unrequested context; 1 still gave the earlier OpenAI
   review a model (`gpt-6-sol`), down from 2 of 4.
 

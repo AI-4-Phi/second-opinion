@@ -6,16 +6,17 @@ plans, writing, or any work product.
 
 ## Usage
 
-    /second-opinion [question or topic]
+    /second-opinion [file path and question]
 
-The skill defaults to OpenAI: `gpt-6-luna` for quick and general-purpose
+Name the file (or a saved diff): the skill runs in a fork that cannot see the
+conversation. The skill defaults to OpenAI: `gpt-6-luna` for quick and general-purpose
 checks, and `gpt-6-sol` for an in-depth review (a spec, plan, pre-merge diff or
 completed implementation, or whenever you ask for depth). To use another
 backend, mention it:
 
-    /second-opinion in depth: review this implementation plan
-    /second-opinion using Kimi: is this refactoring approach sound?
-    /second-opinion ask DeepSeek to review this draft
+    /second-opinion in depth: review docs/plan.md
+    /second-opinion using Kimi: is the refactoring in src/parser.py sound?
+    /second-opinion ask DeepSeek to review drafts/intro.md
     /second-opinion with Gemini: review all the files in this dir
 
 ## How it executes

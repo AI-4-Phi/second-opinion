@@ -7,9 +7,10 @@ description: >-
   The skill only PREPARES the request — the handoff message names the exact
   command for the main session to launch. Work lands in
   <session scratchpad>/second-opinion-*/ (prompt.txt and launch.txt when
-  prepared; review-text.md once run). To review uncommitted changes, save the
-  diff to a file first and pass its path.
-argument-hint: [question or topic]
+  prepared; review-text.md once run). The skill cannot see the conversation:
+  put the target's file path, and any earlier reviews, in the args. To review
+  uncommitted changes, save the diff to a file first and pass its path.
+argument-hint: [file path and question]
 allowed-tools: Read, Glob, Grep, Write
 disallowed-tools: Bash, PowerShell, Agent, Skill, Workflow, ToolSearch, SendMessage, Monitor, CronCreate, RemoteTrigger
 context: fork
@@ -91,10 +92,10 @@ so does an explicit ask for a quick, fast or cheap check. (2) Otherwise the
 in-depth row applies when its trigger matches; when unsure, the request is
 not in-depth, and the default quick check applies. (3) "Second" and "third"
 in-depth opinions count the external in-depth reviews of the same target
-that the request names as done ("OpenAI already reviewed"), that you can see
-in this conversation, or the number the user asks for up front: with none,
-the review goes to `gpt-6-sol`, even when the user says "a
-second opinion" (the skill's name, not a count). (4) The long-documents row
+that the request names as done ("OpenAI already reviewed"), or the count it
+asks for ("a third opinion"): with none, the review goes to `gpt-6-sol`,
+even when the user says "a second opinion" (the skill's name, not a count).
+(4) The long-documents row
 only adjusts cost; it never replaces the route chosen above.
 
 **Effort:** the runner sends `reasoning_effort: high` to every backend that
@@ -116,11 +117,12 @@ perspective might surface overlooked issues.
 
 ## Workflow
 
-1. **Identify the target** from the **Request** line at the top, or from
-   unambiguous context (e.g. the user just wrote the document under
-   discussion). An empty Request line with no such context, or an ambiguous
-   target → the FAILED template. Fail loudly; never ask (a fork has no user
-   to answer) and never guess (reviewing the wrong thing reads as success).
+1. **Identify the target** from the **Request** line at the top. You cannot
+   see the conversation that invoked you, so that line is your only source.
+   An empty Request line, or one whose target is ambiguous or points back
+   into the conversation ("the plan we discussed") → the FAILED template.
+   Fail loudly; never ask (a fork has no user to answer) and never guess
+   (reviewing the wrong thing reads as success).
 2. **Read the target files** and inline their content in the prompt — no
    backend reads local files. Unreadable target → FAILED naming the path. A
    **diff review** requested without a saved diff file → FAILED naming the
@@ -198,8 +200,9 @@ gets the same concrete command (whitespace/line-wrapping aside).
 
     STATUS: FAILED — <no target supplied | cannot read target: <path> | cannot
       write prompt file: <error> | diff review requested but no diff file supplied>
-    <one line on what happened. No-target: the Request line was empty and
-      nothing in context identified a target; nothing was prepared or sent. Diff
+    <one line on what happened. No-target: the Request line named no target
+      this fork can read (it cannot see the conversation); nothing was
+      prepared or sent. Diff
       case: save it first — git diff > <file> — and re-invoke with that path.>
     MAIN SESSION: re-invoke with the target in args. If forked invocations keep
       failing this way, skip the fork and drive the runner yourself:
@@ -239,8 +242,8 @@ this order, and nothing else:
 2. **The target from step 1, inlined**, however it reached you. Session
    instructions, CLAUDE.md files, memory, git state and files the request
    does not name are not part of it.
-3. **Earlier reviews**, when the request or this conversation names them:
-   what that source states about them, e.g. "OpenAI already reviewed this".
+3. **Earlier reviews**, when the request names them: quote the request's
+   words about them and add nothing, e.g. "OpenAI already reviewed this."
    The routing table tells you what a review would use, not what an earlier
    one did use.
 4. **The questions**: what kind of feedback you want.
@@ -249,7 +252,7 @@ In this shape:
 
     I'm working on [TASK]. My current approach is [APPROACH].
     Files to review: [THE TARGET, INLINED]
-    [EARLIER REVIEWS, as the request or conversation states them; omit if none]
+    [EARLIER REVIEWS, in the request's words; omit if none]
     Questions:
     1. What problems do you see with this approach?
     2. What edge cases might I be missing?

@@ -6,12 +6,13 @@ DeepSeek, xAI, GLM (z.AI), or MiniMax — via their REST APIs. Reviews code, pla
 arguments, or any other work product; Claude reads the review and remains the
 decision-maker.
 
-    /second-opinion is this refactoring approach sound?
-    /second-opinion ask DeepSeek to review this draft
-    /second-opinion in depth: review this implementation plan
+    /second-opinion is the refactoring in src/parser.py sound?
+    /second-opinion ask DeepSeek to review drafts/intro.md
+    /second-opinion in depth: review docs/plan.md
 
-Claude also invokes it proactively when a plan or piece of work is worth an
-outside check.
+Name the file: the skill runs in a fork that cannot see the conversation,
+so "review this plan" gives it nothing to find. Claude also invokes it
+proactively when a plan or piece of work is worth an outside check.
 
 Every invocation runs the same way: the skill *prepares* the review — it
 writes the prompt and hands the session an exact command to launch it as a
