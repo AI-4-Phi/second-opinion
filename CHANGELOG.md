@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 — 2026-09
 
 - **A stream that closes without an end marker is `partial`, not
   `completed`.** The runner took a quiet EOF after some text as a finished
