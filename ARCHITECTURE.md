@@ -1,7 +1,8 @@
 # Architecture
 
 How the pieces of this plugin fit together, as they are. Descriptive only — no
-proposals. Verified against the shipped code 2026-08-23 (plugin 0.3.1).
+proposals. Verified against the shipped code 2026-08-23 (plugin 0.3.1); the
+forked-skill and direct-skill rows, 2026-09-26 (plugin 0.5.0).
 
 For what the skill *should* do, read
 [SKILL.md](skills/second-opinion/SKILL.md) — that file is the contract, and this
