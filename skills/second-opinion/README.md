@@ -19,6 +19,10 @@ backend, mention it:
     /second-opinion ask DeepSeek to review drafts/intro.md
     /second-opinion with Gemini: review all the files in this dir
 
+To launch the runner yourself instead (several providers on one prompt,
+line-numbered files, or a second round that carries earlier findings), use
+`/second-opinion:direct`.
+
 ## How it executes
 
 The skill always *prepares* a review — it never runs one itself. It writes the

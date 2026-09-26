@@ -14,10 +14,16 @@ Name the file: the skill runs in a fork that cannot see the conversation,
 so "review this plan" gives it nothing to find. Claude also invokes it
 proactively when a plan or piece of work is worth an outside check.
 
-Every invocation runs the same way: the skill *prepares* the review — it
-writes the prompt and hands the session an exact command to launch it as a
-background task — rather than running it itself. The review then runs outside
-the skill, lands on disk once it finishes, and Claude reads it from there.
+Every `/second-opinion` invocation runs the same way: the skill *prepares*
+the review — it writes the prompt and hands the session an exact command to
+launch it as a background task — rather than running it itself. The review
+then runs outside the skill, lands on disk once it finishes, and Claude reads
+it from there.
+
+A second skill, `/second-opinion:direct`, skips the preparing step: the main
+session writes the prompt and launches the runner itself. Use it for several
+providers on one prompt, files with real line numbers, or a second round that
+carries the first round's findings.
 
 ## ⚠️ Where your content goes
 
@@ -126,6 +132,8 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
   — endpoints, request shapes, measured provider behavior
 - [skills/second-opinion/SKILL.md](skills/second-opinion/SKILL.md) — the skill
   itself (what Claude follows)
+- [skills/direct/SKILL.md](skills/direct/SKILL.md) — the direct launcher:
+  several providers, line-numbered files, second rounds
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit: fork, runner, the files
   a run leaves, and what survives what
 
@@ -169,38 +177,17 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
   skill's completion to the parent — so the main session can error trying to
   poll for it, never seeing the handoff, and nothing gets launched. The fork's
   work is still on disk: `.../second-opinion-<slug>/launch.txt` holds the exact
-  command it prepared — run it yourself as a background Bash task (see the
-  empty-args recipe below for the shape), and `review-envelope.json` appearing
-  in that same directory is the completion signal. This affects any forked
+  command it prepared — run it yourself as a background Bash task, and
+  `review-envelope.json` appearing in that same directory is the completion
+  signal. This affects any forked
   skill under such a setup, not just this one.
 - **A forked review returns a question, or `STATUS: FAILED — no target
   supplied`, instead of a review** — the forked skill found no target. Either the
   invocation's `args` never reached it (an upstream delivery failure), or they did
   and the fork missed them; the fork's transcript shows which. Either way it is
-  not the runner, and nothing was sent to any backend. Re-invoking may work; if it
-  keeps happening, skip the fork and drive the runner yourself:
-  1. Write the review prompt (your question + the file contents, inlined) to
-     `<dir>/prompt.txt`, where `<dir>` is
-     `<scratchpad>/second-opinion-<slug>`.
-  2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes
-     and orphans the runner):
-
-         rm -f <dir>/review-envelope.json <dir>/review-text.md \
-           <dir>/review-request.json && \
-         DEADLINE=5400 python3 <runner> --long \
-           --prompt-file <dir>/prompt.txt openai <dir>/review
-
-     (swap the provider argument to reroute; add `--effort low` for a quick
-     check, or `--model <id>` for a specific model. Gemini is the one backend
-     that refuses `--effort`). If you installed from the marketplace, `<runner>` is
-     `<claude-config-dir>/plugins/cache/ai4phi/second-opinion/<version>/skills/second-opinion/scripts/run-request.py`;
-     from a clone it is `skills/second-opinion/scripts/run-request.py`.
-  3. `<dir>/review-envelope.json` appearing IS the completion signal — read
-     its status first; the review lands at `review-text.md`. Full envelope,
-     status, and gate details:
-     [skills/second-opinion/api-reference.md](skills/second-opinion/api-reference.md).
-
-  This affects any forked skill that takes an argument, not just this one.
+  not the runner, and nothing was sent to any backend. Re-invoke with the
+  target's file path; if it keeps happening, use `/second-opinion:direct`, which
+  launches the runner from the main session.
 - **Sanity-check the runner itself** by running the unit tests below (no
   network, no keys needed).
 

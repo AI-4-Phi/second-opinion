@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
+Claude Code plugin with two skills and one runner: `second-opinion` (a fork
+that prepares a request), `direct` (the main session launches the runner
+itself), and `run-request.py`, which both skills launch.
 
 - Tests: `python3 -m unittest discover -s tests` — stdlib only, like the
   runner itself. No pytest, no pip installs; keep the no-dependencies promise.
@@ -20,6 +22,11 @@ Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
   conditions, the reader rule, and the orphan-kill live in api-reference.md;
   SKILL.md keeps routing and the fork contract (PREPARED/FAILED) only. Don't
   duplicate.
+- In any SKILL.md, the harness substitutes `$ARGUMENTS` and `$` followed by a
+  digit (`$0`, `$1`, …) with the invocation's arguments, everywhere in the
+  text (verified 2026-09-26: an awk `$0` example became the first argument
+  word). The fork uses `$ARGUMENTS` once, on its Request line; keep every
+  other `$`-digit out, e.g. `cat -n` rather than awk for line numbers.
 - strip_think() is minimax-scoped by design — the verified provider behavior
   behind that lives in its docstring in run-request.py; don't restate it here.
 - Settled; don't re-propose (reasoning in the 0.1.2/0.2.0 commits): a fifth

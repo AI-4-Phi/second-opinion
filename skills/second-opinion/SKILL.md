@@ -204,29 +204,15 @@ gets the same concrete command (whitespace/line-wrapping aside).
       this fork can read (it cannot see the conversation); nothing was
       prepared or sent. Diff
       case: save it first — git diff > <file> — and re-invoke with that path.>
-    MAIN SESSION: re-invoke with the target in args. If forked invocations keep
-      failing this way, skip the fork and drive the runner yourself:
-      1. Write the review prompt (your question + the file contents, inlined) to
-         <scratchpad>/second-opinion-<slug>/prompt.txt
-      2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes
-         and orphans the runner):
-         rm -f <dir>/review-envelope.json <dir>/review-text.md \
-           <dir>/review-request.json && \
-         DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
-           --prompt-file <that file> openai <dir>/review
-         (this runs OpenAI's quick-check default; add --model gpt-6-sol for
-         an in-depth review. Swap the provider argument to reroute; add
-         --effort low for a quick check, or --model <id> for a specific
-         model. Gemini is the one backend that refuses --effort)
-      3. <dir>/review-envelope.json appearing IS the completion signal — read
-         its status first; the review lands at review-text.md.
+    MAIN SESSION: re-invoke with the target's file path in the args. If it keeps
+      failing with a path in the request, use /second-opinion:direct, which
+      launches the runner from the main session.
 
-In both templates, emit `<skill-dir>` resolved to this skill's real absolute
-directory (your skill-load context names it). In PREPARED, emit `<WORKDIR>`
-resolved to the real absolute work directory — a PREPARED message containing
-a literal placeholder is a broken deliverable. The FAILED recipe's `<scratchpad>`,
-`<dir>`, `<slug>`, and `<that file>` stay generic by design: no work directory
-exists yet, and the main session fills them in.
+In PREPARED, emit `<skill-dir>` resolved to this skill's real absolute
+directory (your skill-load context names it) and `<WORKDIR>` resolved to the
+real absolute work directory — a PREPARED message containing a literal
+placeholder is a broken deliverable. FAILED names no path: the direct skill
+resolves its own.
 
 **Relay the path, never the content.** The review is on disk once run; the
 main session reads it there. Copying or summarizing it through a message can

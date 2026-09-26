@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.0 — 2026-09
+
+- **New skill: `/second-opinion:direct`.** It runs in the main session, not
+  a fork: the session writes the prompt itself, adding files with the shell
+  (`cat -n`, so reviewers can cite real line numbers), and launches the
+  runner once per provider on that one prompt file. Use it for several
+  providers on one prompt, a second round that carries the first round's
+  findings and declines, or a prompt already written. It finds the runner
+  from the harness's "Base directory for this skill" line, creates its work
+  directory with `mkdir` (no `-p`) so two sessions cannot share one, and
+  holds the same closed four-part prompt as the fork, with an explicit
+  warning that the main session sees private context the fork does not.
+  Facts stay in `api-reference.md` and the fork's routing sections.
+- **The fork's FAILED message names no runner path.** It retyped one, and on
+  2026-09-26 one FAILED message misspelled the home directory and another
+  left `<skill-dir>` unresolved. FAILED now says to re-invoke with the file
+  path, then to use `/second-opinion:direct`. The root README's
+  troubleshooting recipe is replaced by the same pointer.
+- Reviewed before release by gpt-6-sol and Kimi, then z.AI on the fixes; the
+  z.AI round caught a launch command that relied on a shell variable set in
+  an earlier Bash call (each call starts a fresh shell). Tested end to end:
+  the skill launched gpt-6-sol and Kimi in parallel on one prompt file.
+
 ## 0.4.2 — 2026-09
 
 - **The review prompt no longer carries unrequested session context.** A
