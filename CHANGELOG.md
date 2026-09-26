@@ -17,8 +17,18 @@
   "outputs:" and cancel lines now name their files as next to `prompt.txt`,
   so only the prompt line and the launch command carry the work directory.
   Before: 4 of 9 forks left a literal `<WORKDIR>`.
-- Verified 2026-09-26 on five forks with the new text: none left a
-  placeholder, named a prior reviewer's model, or added unrequested context.
+- **The request now sits on one Request line at the top of SKILL.md.**
+  `$ARGUMENTS` appeared four times, and the harness substitutes every one,
+  so two rules read as nonsense once filled in: "Empty `<request>` in a fork
+  is an upstream delivery failure" and "no <request> reached this fork". 2 of
+  7 forks on the first 0.4.2 text returned `FAILED — no target supplied`
+  although the request had arrived. It now appears once; step 1, "When to
+  Use" and the FAILED template refer to that line. The root README's
+  troubleshooting no longer calls every no-target FAILED a delivery failure.
+- Verified 2026-09-26 on the final text: 5 of 5 forks on the root README
+  prepared. Across 11 forks with the new prompt rules, none left a
+  placeholder or added unrequested context; 1 still gave the earlier OpenAI
+  review a model (`gpt-6-sol`), down from 2 of 4.
 
 ## 0.4.1 — 2026-09
 

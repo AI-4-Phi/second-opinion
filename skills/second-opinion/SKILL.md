@@ -18,6 +18,8 @@ model: sonnet
 
 # Second Opinion Skill
 
+**Request:** `$ARGUMENTS`
+
 Prepare a review request for an external model and hand it to the main session
 to launch. Claude remains the decision-maker — external input is one data
 point, not authoritative.
@@ -107,19 +109,18 @@ flag.
 
 ## When to Use
 
-Use for `$ARGUMENTS`, or proactively for: code, plans, or documents worth
+Use for the Request above, or proactively for: code, plans, or documents worth
 reviewing; implementation plans before committing to an approach; debugging
 when stuck >2 attempts; academic writing critique; anything where another
 perspective might surface overlooked issues.
 
 ## Workflow
 
-1. **Identify the target** from `$ARGUMENTS`, or from unambiguous context
-   (e.g. the user just wrote the document under discussion). Empty or
-   ambiguous → the FAILED template. Fail loudly; never ask (a fork has no
-   user to answer) and never guess (reviewing the wrong thing reads as
-   success). Empty `$ARGUMENTS` in a fork is an upstream delivery failure,
-   not your logic.
+1. **Identify the target** from the **Request** line at the top, or from
+   unambiguous context (e.g. the user just wrote the document under
+   discussion). An empty Request line with no such context, or an ambiguous
+   target → the FAILED template. Fail loudly; never ask (a fork has no user
+   to answer) and never guess (reviewing the wrong thing reads as success).
 2. **Read the target files** and inline their content in the prompt — no
    backend reads local files. Unreadable target → FAILED naming the path. A
    **diff review** requested without a saved diff file → FAILED naming the
@@ -197,11 +198,11 @@ gets the same concrete command (whitespace/line-wrapping aside).
 
     STATUS: FAILED — <no target supplied | cannot read target: <path> | cannot
       write prompt file: <error> | diff review requested but no diff file supplied>
-    <one line on what happened. No-target: no $ARGUMENTS reached this fork and
+    <one line on what happened. No-target: the Request line was empty and
       nothing in context identified a target; nothing was prepared or sent. Diff
       case: save it first — git diff > <file> — and re-invoke with that path.>
     MAIN SESSION: re-invoke with the target in args. If forked invocations keep
-      arriving empty, skip the fork and drive the runner yourself:
+      failing this way, skip the fork and drive the runner yourself:
       1. Write the review prompt (your question + the file contents, inlined) to
          <scratchpad>/second-opinion-<slug>/prompt.txt
       2. Launch as a BACKGROUND Bash task (a foreground call dies at 10 minutes

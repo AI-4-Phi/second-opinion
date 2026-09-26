@@ -173,11 +173,11 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
   in that same directory is the completion signal. This affects any forked
   skill under such a setup, not just this one.
 - **A forked review returns a question, or `STATUS: FAILED — no target
-  supplied`, instead of a review** — the target argument never reached the
-  forked skill, so it had nothing to review. This is an upstream argument-delivery
-  failure (the harness didn't pass the invocation's `args` into the fork), not
-  the runner — nothing was sent to any backend. Re-invoking may work; if it keeps
-  happening, skip the fork and drive the runner yourself:
+  supplied`, instead of a review** — the forked skill found no target. Either the
+  invocation's `args` never reached it (an upstream delivery failure), or they did
+  and the fork missed them; the fork's transcript shows which. Either way it is
+  not the runner, and nothing was sent to any backend. Re-invoking may work; if it
+  keeps happening, skip the fork and drive the runner yourself:
   1. Write the review prompt (your question + the file contents, inlined) to
      `<dir>/prompt.txt`, where `<dir>` is
      `<scratchpad>/second-opinion-<slug>`.
