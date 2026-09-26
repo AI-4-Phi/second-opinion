@@ -195,9 +195,10 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
 
 ## Using a partial review
 
-A review can stop before it is finished two ways: the stream is interrupted (a
-timeout, a dropped connection, or a close before the provider marks the end),
-or the model runs into its own output-token cap and the provider says so. Either way real work is on disk, reported as status `partial`
+A review can stop before it is finished two ways: the stream is interrupted
+before the provider marks the end (a timeout, a dropped connection, or a quiet
+close), or the model runs into its own output-token cap and the provider says
+so. Either way real work is on disk, reported as status `partial`
 in the envelope: normally N complete findings plus one cut mid-sentence. Use it
 rather than discarding it:
 

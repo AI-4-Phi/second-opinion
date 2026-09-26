@@ -161,7 +161,8 @@ finished a 121 KB branch-diff review at `high` in 110 s end to end. One run does
 retire the worst case.)
 
 **An interrupted run leaves a usable review.** Text already received is on disk.
-The runner then emits `{"status":"partial", …, "chars":N, "detail":"…"}` with
+If the break came before the provider's finish reason, the runner emits
+`{"status":"partial", …, "chars":N, "detail":"…"}` with
 exit code **3**. That is not a failure — it is real model output that stops
 early. Guidance on acting on one lives in the root README.
 
@@ -235,7 +236,7 @@ for the on-disk states before a terminal outcome is reached).
 | status | exit | fields |
 |---|---|---|
 | `completed` | 0 | `provider`, `model`, `http_status`, `attempts`, `usage`, `text_path`, `chars`, `log_path`, and `finish_reason` when the provider reported one |
-| `partial` | 3 | same, plus `detail` — real text on disk, cut short: the stream broke or closed without an end marker, or `finish_reason` says the output hit the model's token cap |
+| `partial` | 3 | same, plus `detail` — real text on disk, cut short: the stream broke before the finish reason or closed without an end marker, or `finish_reason` says the output hit the model's token cap |
 | `failed` | 1 | `provider`, `model`, `error_class`, `http_status`, `attempts`, `detail`, `raw_path`, `log_path` |
 | `usage_error` | 2 | `detail` — bad argument, missing file, unset key, **or a gate refusal**; no request was attempted |
 

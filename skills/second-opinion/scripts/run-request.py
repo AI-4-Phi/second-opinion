@@ -72,8 +72,8 @@ gets a typed result instead of parsing the log file:
   completed:   {"status":"completed","provider","model","http_status","attempts",
                 "usage","text_path","chars","log_path"[,"finish_reason"]}
   partial:     {"status":"partial", ...same..., "detail"}   run cut short: the
-                stream was interrupted or ended without an end marker, or the
-                model hit its output-token cap
+                stream broke before the finish reason or ended without an
+                end marker, or the model hit its output-token cap
   failed:      {"status":"failed","provider","model","error_class","http_status",
                 "attempts","detail","raw_path","log_path"}
   usage_error: {"status":"usage_error","detail"}
