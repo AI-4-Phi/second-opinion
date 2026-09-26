@@ -16,12 +16,14 @@
 - **A stream that breaks after its finish reason is `completed`.** The
   reason arrives with the last text or after it, so the break costs only the
   usage totals; it used to be reported `partial`, which tells the reader to
-  discard a finding that was whole. A cap reason still means `partial`, and
-  a cap with no text is `output_cap` rather than a retried `empty`.
+  discard a finding that was whole. A cap reason still means `partial`, as
+  does text arriving after the reason (no probed backend sends any), and a
+  cap with no text is `output_cap` rather than a retried `empty`. Skipped
+  undecodable `data:` lines are now counted in the log.
 - **Streamed gemini output reads candidate 0 only**, as the non-streaming
   path and the finish-reason check already did. Build mode never asks for
   more than one candidate, so its reviews do not change.
-- Reviewed by gpt-6-sol and Kimi.
+- Reviewed by gpt-6-sol and Kimi, then z.AI on the fixes.
 
 ## 0.5.0 — 2026-09
 

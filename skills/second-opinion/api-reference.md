@@ -195,7 +195,10 @@ marker. With no text at all the run is `empty` as before, or `output_cap`
 when a cap reason explains it. The converse holds too: the finish reason
 arrives with the last text or after it, so a stream that breaks after one
 lost only the usage totals and is not reported as cut (a cap reason still
-makes it `partial`). Probed 2026-09-26, each default model on a short prompt:
+makes it `partial`, and so does text arriving after the reason, which no
+probed backend sends). A backend that never marks its end would have every
+run reported `partial`; the `detail` says so. Undecodable `data:` lines are
+skipped and counted in the log. Probed 2026-09-26, each default model on a short prompt:
 all seven backends sent a finish reason on a clean end, five of them also
 `[DONE]`; minimax and gemini sent no `[DONE]`, so for them the finish reason
 is the only marker.

@@ -89,14 +89,17 @@ OpenAI-compatible backends, `candidates[0].finishReason` on gemini. Whatever the
 provider sends is recorded in the envelope, lowercased. Verified 2026-08-20 on
 z.AI glm-5.3 ("length") and gemini-3.1-pro-preview ("MAX_TOKENS"), both in the
 same SSE event that carries the usage totals, and end to end on kimi-k3 (a
-capped run returned `partial` with 1320 chars of review on disk); the other four
-backends are unprobed, and an absent reason is reported as absent, never as a
-clean stop.
+capped run returned `partial` with 1320 chars of review on disk); the cap reason
+is unprobed on the other four backends, and an absent reason is reported as
+absent, never as a clean stop. How each backend ends a clean stream (probed
+2026-09-26) is in stream_sse's docstring.
 
-Only a CAP_FINISH reason downgrades a run to `partial`. An output cut at the
-token cap is a review that stops mid-sentence, and the reader rule for `partial`
-says to discard the last finding — so every other reason (content_filter,
-safety, …) stays `completed` with the reason visible in the envelope. A false
+Of the finish reasons, only a CAP_FINISH one downgrades a run to `partial`
+(a stream with no end marker at all is `partial` too; see stream_sse). An
+output cut at the token cap is a review that stops mid-sentence, and the
+reader rule for `partial` says to discard the last finding — so every other
+reason (content_filter, safety, …) stays `completed` with the reason visible
+in the envelope. A false
 `partial` would make the caller throw away a real finding; a filtered stop
 reported as complete is visible and costs nothing.
 
@@ -607,9 +610,11 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
     neither marker is a stream cut short, not a finished review. The
     converse holds too: the finish reason arrives with the last text or
     after it, so a break after one costs only the usage totals, and stop
-    stays None.
+    stays None — unless text did follow the reason, which no probed backend
+    sends; then the reason no longer vouches for the text and stop stands.
     """
     chunks, usage, stop, finish, done = [], {}, None, "", False
+    text_after_finish, undecodable = False, 0
     out = open(text_path, "w")
     try:
         for raw in resp:
@@ -626,8 +631,11 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
             try:
                 event = json.loads(payload)
             except ValueError:
+                undecodable += 1
                 continue
             piece, u = sse_delta(provider, event)
+            if piece and finish:
+                text_after_finish = True  # finish came in an EARLIER event
             reason = finish_reason(provider, event)
             if reason:
                 finish = reason  # last non-empty wins; most events carry none
@@ -643,17 +651,20 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
         stop = "stream interrupted: %s" % str(reason)[:200]
     finally:
         out.close()
-    if stop is not None and finish:
+    if stop is not None and finish and not text_after_finish:
         logline("%s, after finish_reason=%s: the text is whole" % (stop, finish))
         stop = None
     elif stop is None and not done and not finish and chunks:
         stop = ("stream ended without an end marker (no [DONE], no finish "
                 "reason): the provider closed the connection before saying "
-                "the review was finished")
+                "the review was finished — or it never marks the end, and "
+                "then every run on it ends this way")
     text = "".join(chunks)
-    logline("stream: %d chars, %d chunks%s%s" %
+    logline("stream: %d chars, %d chunks%s%s%s" %
             (len(text), len(chunks),
              " finish_reason=" + finish if finish else "",
+             " (%d undecodable data lines skipped)" % undecodable
+             if undecodable else "",
              "" if stop is None else " — " + stop))
     return text, usage, stop, finish
 

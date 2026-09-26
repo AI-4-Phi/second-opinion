@@ -861,16 +861,16 @@ class TruncationTests(_RunnerFixture, unittest.TestCase):
         self.assertNotIn("detail", envelope)
 
     def cut_after(self, events):
-        """Send events, then stall past a 1 s deadline: an interruption."""
+        """Send events, then stall past a 2 s deadline: an interruption."""
         def respond(h):
             h.send_sse(events)
-            time.sleep(3)
+            time.sleep(4)
             h.send_sse([{"choices": [], "usage": {"total_tokens": 9}}, "[DONE]"])
         url = self.start_server(respond)
         req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
         with self.patch_provider("kimi", url):
             return run_main(["kimi", req, self.base],
-                            {"MOONSHOT_API_KEY": "k", "DEADLINE": "1",
+                            {"MOONSHOT_API_KEY": "k", "DEADLINE": "2",
                              "ATTEMPTS": "1"})
 
     def test_interruption_after_a_finish_reason_stays_completed(self):
@@ -901,6 +901,35 @@ class TruncationTests(_RunnerFixture, unittest.TestCase):
                           "delta": {"content": ""}}]}])
         self.assertEqual(code, 1)
         self.assertEqual(envelope["error_class"], "output_cap")
+
+    def test_text_after_the_finish_reason_keeps_a_break_partial(self):
+        # no probed backend sends text after its finish reason; if one ever
+        # does, the reason no longer vouches for the text, so fail safe
+        envelope, code = self.cut_after([
+            {"choices": [{"index": 0, "finish_reason": "stop",
+                          "delta": {"content": "early "}}]},
+            {"choices": [{"delta": {"content": "and more"}}]}])
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertIn("interrupted", envelope["detail"])
+
+    def test_usage_without_a_marker_is_still_partial(self):
+        # usage totals are not an end marker
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "finding one"}}]},
+            {"choices": [], "usage": {"total_tokens": 9}}]))
+        self.assertEqual(code, 3)
+        self.assertIn("without an end marker", envelope["detail"])
+
+    def test_undecodable_lines_are_counted_in_the_log(self):
+        envelope, code = self.run_kimi(self.stream([
+            {"choices": [{"delta": {"content": "the review"}}]},
+            "{not json",
+            {"choices": [{"index": 0, "finish_reason": "stop", "delta": {}}]},
+            "[DONE]"]))
+        self.assertEqual(code, 0)
+        with open(envelope["log_path"]) as f:
+            self.assertIn("1 undecodable", f.read())
 
     def test_gemini_stream_reads_the_first_candidate_only(self):
         # the finish reason is tracked on candidate 0, and the non-streaming
