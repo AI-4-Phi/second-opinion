@@ -8,12 +8,15 @@ plans, writing, or any work product.
 
     /second-opinion [question or topic]
 
-The skill defaults to Kimi (`kimi-k3`). To use another backend, mention it:
+The skill defaults to OpenAI: `gpt-6-luna` for quick and general-purpose
+checks, and `gpt-6-sol` for an in-depth review (a spec, plan, pre-merge diff or
+completed implementation, or whenever you ask for depth). To use another
+backend, mention it:
 
-    /second-opinion using OpenAI: is this refactoring approach sound?
+    /second-opinion in depth: review this implementation plan
+    /second-opinion using Kimi: is this refactoring approach sound?
     /second-opinion ask DeepSeek to review this draft
-    /second-opinion from Grok: review these changes
-    /second-opinion with Gemini 2.5-pro: review all the files in this dir
+    /second-opinion with Gemini: review all the files in this dir
 
 ## How it executes
 
@@ -62,32 +65,39 @@ policy if that matters for your content.
 
 ## Model details
 
-Verified 2026-07. Models churn faster than skill releases — see "Changing
-default models" below to adapt without waiting for one.
+Verified 2026-09-25 (`grok-4.3`: 2026-09-26): each model is listed by its
+provider's `/models` and answered a live completion at the shared `high`
+(Gemini, which has no such parameter, at its own default). "Best for" follows
+the maintainer's ranking, informed by the measured reviews in the root
+README's Cost section.
+Prices are first-party list prices in USD per million tokens, uncached input /
+output, read 2026-09-25. They change, so check the provider's page before
+you rely on one. Models churn faster than skill releases — see "Changing
+default models" below to adapt without waiting for one. "(default)" marks
+each provider's default model; the skill's default backend is OpenAI. What a
+whole review costs: the root README's [Cost](../../README.md#cost) section.
 
-| Backend | Model | Best for | Notes |
-|---------|-------|----------|-------|
-| Kimi | `kimi-k3` (default) | Deep general + reasoning review | 1M ctx; always-on thinking; priciest ($3/$15 per M) |
-| Gemini | `gemini-3.1-pro-preview` | Deepest Gemini review | Thinking model, preview-only tier |
-| Gemini | `gemini-2.5-pro` | Large context / bulk review | 1M tokens, GA/stable, free tier |
-| Gemini | `gemini-3.5-flash` | Fast feedback | Lower latency |
-| OpenAI | `gpt-5.6-sol` | Deepest OpenAI analytical review | Flagship; the shared `high` default suits hard problems |
-| OpenAI | `gpt-5.6-terra` | Balanced everyday review | ~gpt-5.5-level at half price |
-| OpenAI | `gpt-5.5` | Prior OpenAI flagship | Still strong |
-| DeepSeek | `deepseek-v4-pro` | Independent opinion, cheap deep review | 1M ctx; `reasoning_effort` up to `xhigh`; $1.32/M in (2026-08) |
-| DeepSeek | `deepseek-v4-flash` | Cheapest useful review | 1M ctx; $0.44/M in (2026-08) |
-| xAI | `grok-4.5` | Independent opinion, flagship | 500k ctx; $2/$6 per M |
-| xAI | `grok-4.3` | Long documents | 1M ctx; ~half the price of 4.5 |
-| z.AI | `glm-5.3` | Independent opinion | Reasons by default; glm-5.x moves fast, but a `/models` listing isn't access — see api-reference.md |
-| MiniMax | `MiniMax-M3` | Fast independent opinion | Reasons by default; ~5 s on small prompts |
+| Backend | Model | Best for | $/M in / out | Notes |
+|---------|-------|----------|--------------|-------|
+| Kimi | `kimi-k3` (default) | Second in-depth opinion (third for specs and docs) | $3.00 / $15.00 | 1M ctx; always-on thinking; slow |
+| OpenAI | `gpt-6-luna` (default) | Quick and general-purpose checks; first pick for a fast review | $0.10 / $0.50 | 1.05M ctx; its predecessor was tier-gated on some keys — if yours is refused, set `SECOND_OPINION_OPENAI_MODEL=gpt-6-sol` |
+| OpenAI | `gpt-6-sol` | In-depth review, first pick | $2.00 / $10.00 | 1.05M ctx |
+| DeepSeek | `deepseek-flash` (default) | Cheap independent opinion | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak | 1M ctx; peak is 01–04 and 06–10 UTC on weekdays |
+| xAI | `grok-4.3` (default) | Cheap, fast opinion — check its findings | $1.25 / $2.50 up to 200k, $2.50 / $5.00 above | 1M ctx; reported bugs that were not there (root README, Cost) |
+| xAI | `grok-4.7` | Not recommended: slow and expensive | $2.00 / $6.00 up to 200k, $4.00 / $12.00 above | 500k ctx |
+| z.AI | `glm-5.3` (default) | Second in-depth opinion for specs and docs (the maintainer's pick), third otherwise | $1.40 / $4.40 | 1M ctx |
+| z.AI | `glm-5.3-flash` | Not recommended for reviews | $0.15 / $0.50 | 1M ctx; judged a planted bug's code correct (root README, Cost) |
+| MiniMax | `MiniMax-M3` (default) | Cheap independent opinion | $0.30 / $1.20 | 1M ctx; price doubles above 512k input tokens |
+| Gemini | `gemini-3.8-flash` (default) | Fast review, second pick | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 | 1M ctx; free tier per Google's pricing page (read 2026-09-25) |
 
-Kimi is the default but the priciest and slowest (always reasoning); for a quick
-or cheap check reach for `deepseek-v4-flash` or `gemini-3.5-flash` instead.
+Kimi has the highest per-token price of the defaults and is among the slowest
+(always reasoning); reserve it for in-depth work. For a quick or cheap check
+use the OpenAI default (`gpt-6-luna`), DeepSeek's default, or xAI's default.
 
 **Reasoning level.** Every backend but Gemini is asked for
-`reasoning_effort: high`, so depth is the same whichever one you route to —
-`high` is the only level all of them accept (`kimi-k3` and `glm-5.3` have no
-`medium`). Pass `--effort low` for a quick check. Because `high` is a
+`reasoning_effort: high`, so each gets the same requested level whichever one you route to —
+`high` is the highest level all of them accept (`xhigh` and `max` are not
+offered everywhere, and `kimi-k3` and `glm-5.3` have no `medium`). Pass `--effort low` for a quick check. Because `high` is a
 long-path level, a run that does not pass `--effort` must also pass `--long`;
 the skill's own launch command always does.
 
@@ -101,14 +111,17 @@ When a provider ships a new model, set an env var instead of editing the skill:
     export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
 The override is honored by the runner at launch, in build mode — not by the
-skill. When the skill composes a launch command it only ever adds `--model`
-if the user asked for a specific non-default model; an env-var override takes
-effect on its own, with no `--model` flag needed. Effort needs no special
+skill. When the skill composes a launch command it adds `--model` only when
+you named a model (a built-in default included, so your named model wins over
+an env override) or when it routes an in-depth review to `gpt-6-sol`, which
+therefore ignores `SECOND_OPINION_OPENAI_MODEL`. Otherwise an env-var override
+takes effect on its own, with no `--model` flag needed. Effort needs no special
 handling: the runner's default is keyed to the provider, not to the model id,
 so an overridden model gets the same `reasoning_effort: high`. The one thing to
-know is that the override must point at a model that *takes* that parameter —
-if it doesn't, the provider answers 400 and the runner reports `bad_request`
-naming it.
+know is that the override should point at a model that *takes* that
+parameter. If it doesn't, the provider may answer 400 (the runner reports
+`bad_request` naming it), or it may accept the field and ignore it —
+`kimi-k2.7-code` does, so an override to it runs at the model's own default.
 Details: [api-reference.md](api-reference.md#model-and-effort-resolution-build-mode).
 
 ## Requirements
@@ -118,7 +131,7 @@ backend you want, exported in your environment (e.g. from your shell profile
 or a secrets file it sources). You only need keys for the backends you use:
 
 - **Kimi:** `MOONSHOT_API_KEY` ([platform.kimi.ai](https://platform.kimi.ai/))
-- **Gemini:** `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey); free tier covers gemini-2.5-pro)
+- **Gemini:** `GEMINI_API_KEY` ([Google AI Studio](https://aistudio.google.com/apikey); free tier: see the model table)
 - **OpenAI:** `OPENAI_API_KEY` ([platform.openai.com](https://platform.openai.com/api-keys))
 - **DeepSeek:** `DEEPSEEK_API_KEY` ([platform.deepseek.com](https://platform.deepseek.com/api_keys))
 - **xAI:** `XAI_API_KEY` ([console.x.ai](https://console.x.ai/))

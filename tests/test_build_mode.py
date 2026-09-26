@@ -125,7 +125,11 @@ class ResolveModelTests(HelperGuard):
 
     def test_defaults_cover_every_provider(self):
         self.assertEqual(set(mod.DEFAULT_MODELS), set(mod.PROVIDERS))
-        self.assertEqual(mod.DEFAULT_MODELS["gemini"], "gemini-3.1-pro-preview")
+        # the one pin of the whole table: a typo here would 400 every user
+        self.assertEqual(mod.DEFAULT_MODELS, {
+            "kimi": "kimi-k3", "openai": "gpt-6-luna",
+            "deepseek": "deepseek-flash", "xai": "grok-4.3", "zai": "glm-5.3",
+            "minimax": "MiniMax-M3", "gemini": "gemini-3.8-flash"})
 
 
 class ResolveEffortTests(HelperGuard):
@@ -371,7 +375,7 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
         envelope, code = self.run_build(provider="deepseek",
                                         key=("DEEPSEEK_API_KEY", "k"))
         self.assertEqual(code, 0)
-        self.assertEqual(self.sent()["model"], "deepseek-v4-pro")
+        self.assertEqual(self.sent()["model"], "deepseek-flash")
         self.assertEqual(self.sent()["reasoning_effort"], mod.DEFAULT_EFFORT)
 
     def test_whitespace_env_override_falls_through(self):
@@ -456,12 +460,12 @@ class GeminiBuildTests(_BuildFixture, unittest.TestCase):
     def test_url_carries_resolved_default_model(self):
         envelope, code = self.run_gemini()
         self.assertEqual(code, 0)
-        self.assertIn("gemini-3.1-pro-preview", _Handler.requests[0][0])
+        self.assertIn("gemini-3.8-flash", _Handler.requests[0][0])
         body = self.sent()
         self.assertIn("systemInstruction", body)
         self.assertIn("contents", body)
         self.assertNotIn("model", body)
-        self.assertEqual(envelope["model"], "gemini-3.1-pro-preview")
+        self.assertEqual(envelope["model"], "gemini-3.8-flash")
 
     def test_env_override_resolves_url_model(self):
         envelope, code = self.run_gemini(
@@ -480,7 +484,7 @@ class GeminiBuildTests(_BuildFixture, unittest.TestCase):
             ["--prompt-file", prompt, "gemini", self.base])
         self.assertEqual(code, 2)
         self.assertIn("GEMINI_API_KEY not set", envelope["detail"])
-        self.assertIn("gemini-3.1-pro-preview", envelope["detail"])
+        self.assertIn("gemini-3.8-flash", envelope["detail"])
 
 
 class BodyShapeTests(_BuildFixture, unittest.TestCase):
@@ -513,7 +517,7 @@ class BuiltGateTests(_BuildFixture, unittest.TestCase):
         self.assertIn("long-path request refused", envelope["detail"])
         # build-mode refusals name the resolved provider and model (spec §10)
         self.assertIn("openai", envelope["detail"])
-        self.assertIn("gpt-5.6-sol", envelope["detail"])
+        self.assertIn("gpt-6-luna", envelope["detail"])
 
     def test_built_bytes_cross_gate_runs_with_long(self):
         url = self.sse_server()
@@ -532,7 +536,7 @@ class BuiltGateTests(_BuildFixture, unittest.TestCase):
             {"GEMINI_API_KEY": "k"})
         self.assertEqual(code, 2)
         self.assertIn("long-path request refused", envelope["detail"])
-        self.assertIn("gemini-3.1-pro-preview", envelope["detail"])
+        self.assertIn("gemini-3.8-flash", envelope["detail"])
 
 
 class RequestArtifactTests(_BuildFixture, unittest.TestCase):
@@ -627,7 +631,7 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
             self.assertEqual(code, 0)
             _e, code = run_main(
                 ["gemini", self.artifact, self.base,
-                 "gemini-3.1-pro-preview"], env)
+                 "gemini-3.8-flash"], env)
             self.assertEqual(code, 0)
         self.assertEqual(_Handler.requests[0][0], _Handler.requests[1][0])
         self.assertEqual(self.sent(0), self.sent(1))

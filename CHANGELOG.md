@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.4.0 — 2026-09
+
+- **The default backend is now OpenAI, not Kimi, in two tiers.** Its runner
+  default `gpt-6-luna` does quick and general-purpose checks; SKILL.md routes
+  an in-depth review (a spec, design, plan, pre-merge diff, completed
+  implementation, stuck debugging, or any request for depth) to `gpt-6-sol`
+  with an explicit `--model`, then Kimi and z.AI `glm-5.3` for further
+  in-depth opinions (`glm-5.3` ahead of Kimi for specs and docs). SKILL.md now states the order its routing
+  rules apply in: a model, provider or speed the user names wins; an unsure
+  case is a quick check, not an in-depth one. On a seeded whole-branch review (the 0.2.0 diff,
+  121 KB, three planted bugs plus one real bug no test exposed), both
+  `gpt-6-luna`, at about a cent a run, and `gpt-6-sol` found the real bug in
+  every run (counts: the root README's Cost section).
+- **New per-provider defaults, verified 2026-09-25** (`grok-4.3`: 2026-09-26)
+  by `GET /models` and a live completion (at the shared `high`; Gemini at its
+  own default): OpenAI `gpt-6-luna` (was `gpt-5.6-sol`), DeepSeek
+  `deepseek-flash` (V4.1-Flash), xAI `grok-4.3` (was `grok-4.5`), Gemini
+  `gemini-3.8-flash` (was `gemini-3.1-pro-preview`; its introductory price
+  doubles on 2027-01-01). Kimi `kimi-k3`, z.AI `glm-5.3` and MiniMax
+  `MiniMax-M3` are unchanged.
+- **Listed but not recommended:** `grok-4.7` (slowest and dearest per review
+  tested) and `glm-5.3-flash` (it judged a planted bug's code correct).
+  `grok-4.3` is recommended as a cheap option with a caveat: it asserted
+  bugs that were not there. A fast review goes
+  to `gpt-6-luna`, then Gemini.
+- **Rows dropped:** `deepseek-v4-pro` (same findings as `deepseek-flash` at
+  four times the cost) and `gemini-3.1-pro-preview` (most expensive per finding),
+  plus the superseded `gpt-5.6-terra`, `gpt-5.5`, `gemini-2.5-pro`, `gemini-3.5-flash` and
+  `MiniMax-M2.7-highspeed`. `gpt-6-astra` was evaluated and not listed
+  (unmeasured, about five times `gpt-6-sol`'s price).
+- **`--model` now travels whenever the user names a model**, a built-in
+  default included. Before, the skill dropped the flag for a named default,
+  so a `SECOND_OPINION_<PROVIDER>_MODEL` override silently replaced the model
+  the user asked for.
+- **Prices and per-review costs, one home each.** Per-token prices (first-party,
+  read 2026-09-25) live in the skill README's model table; the measured cost,
+  time and bug catches of the seeded review live in the root README's Cost
+  section.
+- **DeepSeek renamed and re-tiered.** `deepseek-v4-flash` was retired on
+  2026-09-10; the id still answers but `deepseek-flash` serves it. DeepSeek
+  now documents `low`/`high`/`max` with an unset default of `high`; `medium`
+  and `xhigh` still return 200.
+- **The gate set is renamed `HIGH_EFFORT_BY_DEFAULT`** (was
+  `TOP_EFFORT_BY_DEFAULT`): DeepSeek's unset default is now `high`, not its top
+  tier, so the old name and the refusal message ("reasons at its top tier")
+  were false. `deepseek-flash` replaces `deepseek-v4-flash`, and `grok-4.7`
+  joins on the strength of xAI's `/models` reporting
+  `default_reasoning_effort: "high"`; `grok-4.3` reports `"low"` and stays
+  out. Legacy mode only; build mode always resolves an effort.
+- **xAI's accepted effort levels are now verified:** `grok-4.7` takes `low`,
+  `medium`, `high`, `xhigh`; `grok-4.3` also takes `none`. The OpenAI GPT-6
+  sets are measured too (`none`–`xhigh` on sol/luna, no `max`).
+- **Docs no longer promise a 400 for an override without
+  `reasoning_effort`.** `kimi-k2.7-code` accepts the field at every level and
+  ignores it; on the 121 KB diff it hit its output-token cap before any
+  review text arrived (`output_cap`). It is listed as a naming
+  trap, not an alternative.
+
 ## 0.3.1 — 2026-08
 
 - **SKILL.md's numbered steps caught up with the shared default.** 0.3.0

@@ -12,8 +12,10 @@ Claude Code plugin: the `second-opinion` skill + `run-request.py` runner.
   Ground truth for model ids: `GET /models` on the provider endpoint.
 - The `SECOND_OPINION_<PROVIDER>_MODEL` overrides are honored by the RUNNER's
   build mode (model resolution: `--model` > env > `DEFAULT_MODELS`); legacy
-  mode deliberately never reads them, and the fork passes `--model` only for
-  explicitly requested non-default models.
+  mode deliberately never reads them. The fork passes `--model` only when the
+  user names a model (a built-in default included, so an env override cannot
+  replace it) or when a routing row names a non-default model (in-depth →
+  `gpt-6-sol`).
 - One home per fact: the envelope statuses/exit codes, the gate's blocking
   conditions, the reader rule, and the orphan-kill live in api-reference.md;
   SKILL.md keeps routing and the fork contract (PREPARED/FAILED) only. Don't

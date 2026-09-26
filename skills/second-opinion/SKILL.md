@@ -44,24 +44,28 @@ main session launches, not from this fork. Keep the line.
 
 | Backend | Requires | Alternatives to the runner's default |
 |---------|----------|--------------------------------------|
-| Kimi | `MOONSHOT_API_KEY` | (single tier; 1M ctx, always-on reasoning) |
-| Gemini | `GEMINI_API_KEY` | `gemini-3.5-flash` (fast), `gemini-2.5-pro` (GA/stable, 1M ctx) |
-| OpenAI | `OPENAI_API_KEY` | `gpt-5.6-terra` (balanced), `gpt-5.5` (prior flagship). `gpt-5.6-luna` is tier-gated on some keys ([api-reference.md](api-reference.md)) |
-| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` (cheapest useful review); both 1M ctx |
-| xAI | `XAI_API_KEY` | `grok-4.3` (1M ctx, half price — long documents) |
-| z.AI | `ZAI_API_KEY` | glm-5.x line moves fast — but a `/models` listing isn't access ([api-reference.md](api-reference.md)) |
-| MiniMax | `MINIMAX_API_KEY` | `MiniMax-M2.7-highspeed` (faster tier) |
+| Kimi | `MOONSHOT_API_KEY` | (none — Moonshot documents `reasoning_effort` for `kimi-k3` only) |
+| Gemini | `GEMINI_API_KEY` | (none) |
+| OpenAI | `OPENAI_API_KEY` | `gpt-6-sol` (in-depth review; the default `gpt-6-luna` is the quick and general-purpose check) |
+| DeepSeek | `DEEPSEEK_API_KEY` | (none) |
+| xAI | `XAI_API_KEY` | `grok-4.7` (listed, not recommended: the slowest and priciest per review tested) |
+| z.AI | `ZAI_API_KEY` | `glm-5.3-flash` (listed, not recommended: in testing it judged a planted bug's code correct). A `/models` listing isn't access ([api-reference.md](api-reference.md)) |
+| MiniMax | `MINIMAX_API_KEY` | (none) |
 
 Per-provider **default models live in the runner**
-(`scripts/run-request.py`, `DEFAULT_MODELS`, verified 2026-07) and are
+(`scripts/run-request.py`, `DEFAULT_MODELS`, verified 2026-09) and are
 resolved at launch: `--model` flag, else `SECOND_OPINION_<PROVIDER>_MODEL`
-from the environment, else the built-in default. So: pass `--model` only when
-the user asked for a specific non-default model; never pass it to re-state a
-default. An override env var needs no special handling for effort: the
-runner's default is keyed to the provider, not to the model id, so an
-overridden model gets the same `high`.
+from the environment, else the built-in default. So pass `--model` in exactly
+two cases: the user named a model — a built-in default included, since the
+flag is what keeps an env override from replacing the model they named — or
+the routing row you chose names a model that is not that provider's runner
+default (today only `gpt-6-sol`). Otherwise omit it. An override env var
+needs no special handling for effort: the runner's default is keyed to the
+provider, not to the model id, so an overridden model gets the same `high`.
 
-**Default backend: Kimi.** Use another when the user asks or for an additional
+**Default backend: OpenAI.** Its runner default, `gpt-6-luna`, is the quick
+and general-purpose check; an in-depth review goes to `gpt-6-sol` (see the
+routing table). Use another backend when the user asks or for an additional
 independent perspective — seven families means up to seven independent
 opinions. You cannot check API keys (no shell); if the chosen backend's key
 turns out to be missing, the runner reports it seconds after launch and the
@@ -71,21 +75,34 @@ main session reroutes.
 
 | Situation | Prefer |
 |-----------|--------|
-| General analytical review (default) | Kimi |
-| Reasoning/debugging/edge cases | Kimi or OpenAI (the default `high` already covers this; `--effort max` on Kimi for the hardest) |
-| File-heavy or long documents | Gemini `--model gemini-2.5-pro`, Kimi, or xAI `--model grok-4.3` (1M ctx) |
-| Fast/cheap feedback | DeepSeek `--model deepseek-v4-flash --effort low`, or Gemini `--model gemini-3.5-flash` (Kimi is neither) |
+| Quick or general-purpose check (default) | OpenAI (runner default `gpt-6-luna`) |
+| In-depth review: the user asks for a thorough or in-depth review, or the target is a spec, design, implementation plan, whole-branch or pre-merge diff, completed implementation, or debugging that is stuck | OpenAI `--model gpt-6-sol`. For a second in-depth opinion, Kimi, and z.AI third — but for a spec or document, z.AI second and Kimi third (the maintainer's ranking). The default `high` covers depth; go higher only for the hardest problems (see Effort) |
+| Fast feedback | OpenAI (its default `gpt-6-luna`), then Gemini |
+| Cheap feedback | OpenAI (its default `gpt-6-luna`), DeepSeek, or xAI. xAI's default `grok-4.3` is cheap and fast, but check what it reports: in testing it asserted bugs that were not there. Kimi is neither fast nor cheap |
+| File-heavy or long documents | Any default (each takes ~1M tokens; MiniMax doubles its price past 512k input tokens, xAI past 200k) |
 | Another independent opinion | Any unused family — different family, different blind spots |
-| No Kimi/OpenAI credits | Gemini (free tier) or DeepSeek (near-free) |
+| No OpenAI/Kimi credits | Gemini (free tier) or DeepSeek (near-free) |
+
+Apply the table in this order. (1) A provider or model the user names wins;
+so does an explicit ask for a quick, fast or cheap check. (2) Otherwise the
+in-depth row applies when its trigger matches; when unsure, the request is
+not in-depth, and the default quick check applies. (3) "Second" and "third"
+in-depth opinions count the external in-depth reviews of the same target
+that the request names as done ("OpenAI already reviewed"), that you can see
+in this conversation, or the number the user asks for up front: with none,
+the review goes to `gpt-6-sol`, even when the user says "a
+second opinion" (the skill's name, not a count). (4) The long-documents row
+only adjusts cost; it never replaces the route chosen above.
 
 **Effort:** the runner sends `reasoning_effort: high` to every backend that
 takes it, so **omit `--effort`** and the review runs at that shared level
 whichever provider you picked. Pass **`--effort low`** only when the user
-wanted a quick or cheap check. Higher than `high` (`xhigh` on deepseek, `max`
-on kimi / z.AI) is for genuinely hard problems and only where the backend
-offers it — `medium` does not exist on kimi or z.AI, so never use it as a
-middle ground. **Never** pass `--effort` for gemini: it has no such parameter
-and the runner refuses the flag.
+wanted a quick or cheap check. Higher than `high` (`xhigh` on OpenAI / xAI,
+`max` on kimi / DeepSeek / z.AI) is for genuinely hard problems and only where
+the backend offers it. Never use `medium` as a middle ground: kimi and z.AI
+reject it, and DeepSeek accepts it but does not document it. **Never** pass
+`--effort` for gemini: it has no such parameter and the runner refuses the
+flag.
 
 ## When to Use
 
@@ -110,8 +127,9 @@ perspective might surface overlooked issues.
 3. **Choose the backend** from the routing table above. Add `--effort` only
    to depart from the runner's shared `high` — `low` for a quick or cheap
    check, higher where the backend offers it and the problem earns it (see
-   "Effort" above); never for gemini. Choose a specific model (`--model`) only
-   when the user asked for a non-default one.
+   "Effort" above); never for gemini. Pass `--model` only in the two cases
+   "Available Backends" names: the user named a model, or the chosen routing
+   row names a non-default one (in-depth review → `gpt-6-sol`).
 4. **Pick a fresh WORKDIR**: `<session scratchpad>/second-opinion-<slug>`.
    Glob `<session scratchpad>/second-opinion-<slug>*` first; on collision
    append `-2`, `-3`, … until fresh. **Write** the composed prompt (see
@@ -123,7 +141,7 @@ perspective might surface overlooked issues.
    Its command must run **verbatim with zero edits**: it starts with the
    `rm -f` prefix, uses this skill's real absolute directory for
    `<skill-dir>` (your skill-load context names it), includes `--model <id>`
-   exactly when step 3 chose a non-default model, includes `--effort <value>`
+   exactly when step 3 chose one, includes `--effort <value>`
    exactly when step 3 departed from the default, and contains no
    placeholders, brackets, or editorial notes.
 
@@ -182,10 +200,11 @@ gets the same concrete command (whitespace/line-wrapping aside).
          rm -f <dir>/review-envelope.json <dir>/review-text.md \
            <dir>/review-request.json && \
          DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
-           --prompt-file <that file> kimi <dir>/review
-         (swap the provider argument to reroute; add --effort low for a quick
-         check, or --model <id> for a specific model. Gemini is the one
-         backend that refuses --effort)
+           --prompt-file <that file> openai <dir>/review
+         (this runs OpenAI's quick-check default; add --model gpt-6-sol for
+         an in-depth review. Swap the provider argument to reroute; add
+         --effort low for a quick check, or --model <id> for a specific
+         model. Gemini is the one backend that refuses --effort)
       3. <dir>/review-envelope.json appearing IS the completion signal — read
          its status first; the review lands at review-text.md.
 
@@ -213,8 +232,8 @@ what kind of feedback you want.
     2. What edge cases might I be missing?
     3. Is there a simpler solution I'm overlooking?
 
-Context budgets: Kimi, Gemini, DeepSeek, and `grok-4.3` handle ~1M tokens.
-OpenAI and `grok-4.5` (500k) are smaller — for very large content prefer a
-1M-context model or include only the relevant sections. z.AI and MiniMax
-context windows are unverified here — check provider docs before sending
-anything huge.
+Context budgets (2026-09-25; each provider's `/models` where it reports one,
+else its docs): every default model takes ~1M tokens; xAI's non-default
+`grok-4.7` takes 500k. Cost rises with size for MiniMax and xAI (see the
+long-documents row), so for very large content include only the relevant
+sections where you can.

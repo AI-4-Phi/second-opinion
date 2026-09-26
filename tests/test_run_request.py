@@ -158,19 +158,30 @@ class GateTests(unittest.TestCase):
                          set())
 
     def test_deepseek_unset_effort_blocks(self):
-        # An omitted field is wire-identical to xhigh on both v4 models, so it
-        # must block exactly as the explicit level does.
-        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+        # An omitted field means "high" on both models (their /models
+        # default_level), so it must block exactly as the explicit level does.
+        for model in ("deepseek-v4-pro", "deepseek-flash"):
             self.assertEqual(self.kinds({"model": model}), {"effort"}, model)
 
     def test_deepseek_low_effort_passes(self):
-        for model in ("deepseek-v4-pro", "deepseek-v4-flash"):
+        for model in ("deepseek-v4-pro", "deepseek-flash"):
             self.assertEqual(
                 self.kinds({"model": model, "reasoning_effort": "low"}),
                 set(), model)
 
+    def test_grok_unset_effort_blocks(self):
+        # grok-4.7's /models entry reports default_reasoning_effort "high".
+        self.assertEqual(self.kinds({"model": "grok-4.7"}), {"effort"})
+        self.assertEqual(
+            self.kinds({"model": "grok-4.7", "reasoning_effort": "low"}), set())
+
     def test_other_model_unset_effort_passes(self):
-        self.assertEqual(self.kinds({"model": "gpt-5.6-sol"}), set())
+        self.assertEqual(self.kinds({"model": "gpt-6-luna"}), set())
+
+    def test_grok_43_unset_effort_passes(self):
+        # The xAI default; its /models entry reports default_reasoning_effort
+        # "low", so an unset field is not a long-path request.
+        self.assertEqual(self.kinds({"model": "grok-4.3"}), set())
 
     def test_size_and_effort_both_reported(self):
         self.assertEqual(self.kinds({"model": "x", "reasoning_effort": "max"},

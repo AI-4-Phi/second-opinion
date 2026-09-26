@@ -51,12 +51,12 @@ conditions:
 
   * the serialized request body >= 32768 bytes, or
   * reasoning_effort is high / xhigh / max, or
-  * the model reasons at the top of its own tier ladder when the request does
-    not set reasoning_effort (kimi-k3 and both deepseek v4 models) — such a
-    request is wire-identical to the explicit high/xhigh/max the line above
-    already blocks; kimi-k3 measured at ~460s for a 10 KB prompt vs ~90s at
-    "low". Reachable in legacy mode only: build mode always resolves an effort
-    for these providers.
+  * the model reasons at high or above when the request does not set
+    reasoning_effort (kimi-k3, which defaults to max; both deepseek models and
+    grok-4.7, which default to high) — such a request is wire-identical to the
+    explicit high/xhigh/max the line above already blocks; kimi-k3 measured at
+    ~460s for a 10 KB prompt vs ~90s at "low". Reachable in legacy mode only:
+    build mode always resolves an effort for these providers.
 
 Since DEFAULT_EFFORT is "high", a build-mode call that does not pass --effort
 trips the first effort condition by design — the default IS a long-path
@@ -214,40 +214,53 @@ CAP_FINISH = {"length", "max_tokens"}
 # --- gate thresholds (see module docstring) ---
 GATE_BYTES = 32768
 HIGH_EFFORTS = {"high", "xhigh", "max"}
-# Models that reason at the top of their own tier ladder unless told otherwise,
-# so an *unset* reasoning_effort is a long-path request — the same request the
-# gate blocks when the level is spelled out. Keyed on that behavior, not on a
-# level name: the ladders differ (kimi tops out at "max", deepseek at "xhigh").
-# Provenance differs too. kimi-k3: GET /v1/models reports
-# reasoning_efforts.default_effort == "max". DeepSeek: /models carries no
-# effort metadata at all, so both v4 models were measured on the wire instead —
-# an omitted field bills the identical server-side prompt injection as
-# high/xhigh and only "low" opts out (verified 2026-08-22, re-confirmed
-# through this runner 2026-08-23: same prompt, 35 prompt tokens at "low"
-# vs 114 both at "xhigh" and with the field absent).
-TOP_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-v4-flash"}
+# Models that reason at high or above unless told otherwise, so an *unset*
+# reasoning_effort is a long-path request — the same request the gate blocks
+# when the level is spelled out. Keyed on that behavior, not on a level name:
+# kimi-k3's unset default is its top tier ("max"), DeepSeek's and grok-4.7's
+# are "high".
+# Positive evidence only, and it differs per model. kimi-k3: GET /v1/models
+# reports reasoning_efforts.default_effort == "max". DeepSeek: GET /models
+# reports effort.default_level == "high" for both models (verified
+# 2026-09-25). deepseek-v4-pro also shows it on the wire: an omitted field
+# bills the same prompt tokens as "high" (90 on a one-line prompt), "low"
+# 11, "max" 103. deepseek-flash bills the same prompt tokens at every level, so
+# its /models entry is the only evidence there. xAI: GET /v1/models reports
+# capabilities.default_reasoning_effort == "high" for grok-4.7 (verified
+# 2026-09-25). The retired id deepseek-v4-flash, served by deepseek-flash, shares
+# the behavior but is left out on purpose: only current canonical ids are listed,
+# and build mode always sets an effort; the older deepseek-chat/-reasoner
+# aliases, which also resolve to the flash tier, are left out for the same
+# reason. Membership follows behavior, not the
+# docs' model tables: deepseek-v4-pro and grok-4.7 stay although no table
+# recommends them, and grok-4.3 stays out (its /models default is "low").
+HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-flash",
+                          "grok-4.7"}
 
 # --- build mode (0.2.0) ---
 # The runner assembles the request itself from a prompt file; the fork no
 # longer hand-builds request.json. Single authoritative home for per-provider
 # default models (SKILL.md keeps routing guidance and alternatives only).
-# Verified 2026-07 against each provider's GET /models (z.AI re-verified
-# 2026-08-20 by live completion). Override without a release via
-# SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
+# Every default verified 2026-09-25 (grok-4.3: 2026-09-26) against the
+# provider's GET /models and by a live completion through this runner at the
+# shared "high" (gemini: at its own thinking default, having no such
+# parameter). openai's default is the quick-check tier; SKILL.md routes
+# in-depth reviews to gpt-6-sol with an explicit --model. Override without
+# a release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
 # legacy mode never reads env for its model.
 DEFAULT_MODELS = {
     "kimi":     "kimi-k3",
-    "openai":   "gpt-5.6-sol",
-    "deepseek": "deepseek-v4-pro",
-    "xai":      "grok-4.5",
+    "openai":   "gpt-6-luna",
+    "deepseek": "deepseek-flash",
+    "xai":      "grok-4.3",
     "zai":      "glm-5.3",
     "minimax":  "MiniMax-M3",
-    "gemini":   "gemini-3.1-pro-preview",
+    "gemini":   "gemini-3.8-flash",
 }
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 # One reasoning level for every backend that has the parameter, so a review is
 # comparable across providers instead of landing wherever each vendor's own
-# default happens to sit. "high" is the only level that can be shared: kimi-k3
+# default happens to sit. "high" is the highest level every backend accepts: kimi-k3
 # and glm-5.3 have no "medium" (verified from moonshot's /v1/models and z.AI
 # error 1210 respectively), which rules the middle out, and xhigh/max are not
 # offered everywhere. Overridden per call by --effort; "low" is the quick-check
@@ -373,9 +386,9 @@ def resolve_effort(provider, flag_value):
     DEFAULT_EFFORT is a *policy* instead: ask every backend for the same level.
     A policy has no such knowledge prerequisite, so it covers a model reached
     through SECOND_OPINION_<PROVIDER>_MODEL too. If that model has no
-    reasoning_effort, the provider's own 400 says so immediately as
-    bad_request — loud and one flag from fixed, unlike the silent max-effort
-    run the old rule guarded against.
+    reasoning_effort, the provider may answer 400 (bad_request) or may accept
+    the field and ignore it: kimi-k2.7-code returned 200 at every level
+    (2026-09-25) although Moonshot documents the parameter as K3-only.
 
     Per-provider tier validity is still not checked here (kimi-k3 and glm-5.3
     have no "medium"): the provider's 400 is the authority, which keeps a
@@ -439,8 +452,8 @@ def gate_reasons(request_obj, size):
     effort = request_obj.get("reasoning_effort")
     if isinstance(effort, str) and effort.lower() in HIGH_EFFORTS:
         reasons.append(("effort", "reasoning_effort=%s" % effort))
-    elif effort is None and model in TOP_EFFORT_BY_DEFAULT:
-        reasons.append(("effort", "%s reasons at its top tier server-side and "
+    elif effort is None and model in HIGH_EFFORT_BY_DEFAULT:
+        reasons.append(("effort", "%s reasons at high or above server-side and "
                                   "the request does not set reasoning_effort"
                                   % model))
     return reasons

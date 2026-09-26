@@ -8,7 +8,7 @@ decision-maker.
 
     /second-opinion is this refactoring approach sound?
     /second-opinion ask DeepSeek to review this draft
-    /second-opinion with Gemini 2.5-pro: review all the files in this dir
+    /second-opinion in depth: review this implementation plan
 
 Claude also invokes it proactively when a plan or piece of work is worth an
 outside check.
@@ -48,9 +48,9 @@ orphan-cleanup uses POSIX signals and `kill`); WSL should behave like Linux.
 
 | Backend | Env var | Get a key |
 |---|---|---|
-| Kimi (default) | `MOONSHOT_API_KEY` | [platform.kimi.ai](https://platform.kimi.ai/) |
-| Gemini | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (free tier covers `gemini-2.5-pro`) |
-| OpenAI | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
+| Kimi | `MOONSHOT_API_KEY` | [platform.kimi.ai](https://platform.kimi.ai/) |
+| Gemini | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) (free tier — see the [model table](skills/second-opinion/README.md#model-details)) |
+| OpenAI (default) | `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com/api-keys) |
 | DeepSeek | `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
 | xAI | `XAI_API_KEY` | [console.x.ai](https://console.x.ai/) |
 | z.AI (GLM) | `ZAI_API_KEY` | [docs.z.ai](https://docs.z.ai/) |
@@ -64,30 +64,58 @@ Code's settings (`env` in `settings.json`).
 
 ## Cost
 
-Each review is one API call to the chosen provider, billed to your key. Rough
-per-review order of magnitude (2026-07 prices, a typical few-thousand-token
-review): Kimi `kimi-k3` is the priciest ($3/M input, $15/M output — usually
-cents per review); DeepSeek and Gemini Flash are near-free; Gemini
-`gemini-2.5-pro` has a free tier. Large documents at high reasoning effort
-cost proportionally more. Every review runs as one background API call,
-bounded by a 90-minute deadline. z.AI and MiniMax pricing: see their provider
-docs.
+Each review is one API call to the chosen provider, billed to your key.
+Reasoning is billed as output, so a model's output price matters more than
+its input price. Every review runs as one background
+API call, bounded by a 90-minute deadline.
+
+Measured 2026-09-25 and 2026-09-26, at first-party list prices of
+2026-09-25, uncached: the same whole-branch review — a 121 KB diff, about 32k
+input tokens — sent to each model one to three times, at the shared `high`
+(Gemini, which has no such parameter, at its own default; MiniMax accepts the
+field but its effect is unestablished — so those rows are not equal-effort
+comparisons). The diff carried three planted bugs and one real bug that no
+test exposed:
+
+| Model | Runs | Cost | Time | Planted bugs found | Real bug found |
+|---|---|---|---|---|---|
+| `gpt-6-luna` | 3 | $0.01 | 1.3 min | 8 of 9 | 3 of 3 |
+| `glm-5.3-flash` | 2 | $0.01 | 4–5 min | 4 of 6 | 0 of 2 |
+| `deepseek-flash` | 3 | $0.03 off-peak ($0.06 peak) | 2–3 min | 9 of 9 | 1 of 3 |
+| `grok-4.3` | 3 | $0.03–0.05 | 1–1.5 min | 9 of 9 | 0 of 3 |
+| `MiniMax-M3` | 1 | $0.06 | 5.1 min | 3 of 3 | 0 of 1 |
+| `glm-5.3` | 2 | $0.11–0.12 | 3.7 min | 5 of 6 | 0 of 2 |
+| `gpt-6-sol` | 2 | $0.11–0.12 | 1–2 min | 6 of 6 | 2 of 2 |
+| `gemini-3.8-flash` | 1 | $0.14 | 1.2 min | 3 of 3 | 0 of 1 |
+| `kimi-k3` | 1 | $0.25 | 5.5 min | 3 of 3 | 1 of 1 |
+| `grok-4.7` | 1 | $0.34 | 9.6 min | 3 of 3 | 1 of 1 |
+
+Reasoning-token counts vary two- to threefold between runs of the same request
+(measured on DeepSeek, 2026-08-22), so read the costs as orders of magnitude.
+Wrong claims matter as much as catches: `grok-4.3` asserted one nonexistent
+bug in each of its three runs, and `glm-5.3-flash` twice judged a planted
+bug's code correct; no other model made more than one minor wrong claim. One
+diff is not a benchmark. Per-token prices: the
+[skill README's model table](skills/second-opinion/README.md#model-details).
 
 ## Updates
 
 Provider model lineups change faster than plugin releases. The shipped
-defaults are verified as of 2026-07; when a provider ships a new model, point
+defaults are verified as of 2026-09; when a provider ships a new model, point
 the skill at it with an env var instead of waiting for an update:
 
     export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,
     export SECOND_OPINION_DEEPSEEK_MODEL=...  # _XAI_, _ZAI_, _MINIMAX_
 
-The override is honored by the runner at launch (build mode). Effort follows
+The override is honored by the runner at launch (build mode), except where
+the skill passes `--model` itself: when you name a model, and when it routes
+an in-depth review to `gpt-6-sol`, which therefore ignores
+`SECOND_OPINION_OPENAI_MODEL`. Effort follows
 along on its own — the runner asks every backend but Gemini for
 `reasoning_effort: high` unless `--effort` says otherwise, and that is keyed to
-the provider, not to the model id. The one requirement is that the override
-point at a model which takes the parameter; if it doesn't, the provider answers
-400 and the runner reports `bad_request` naming it.
+the provider, not to the model id. The override should point at a model which
+takes the parameter. If it doesn't, the provider may answer 400 (the runner
+reports `bad_request` naming it), or it may accept the field and ignore it.
 
 ## Documentation
 
@@ -159,7 +187,7 @@ point at a model which takes the parameter; if it doesn't, the provider answers
          rm -f <dir>/review-envelope.json <dir>/review-text.md \
            <dir>/review-request.json && \
          DEADLINE=5400 python3 <runner> --long \
-           --prompt-file <dir>/prompt.txt kimi <dir>/review
+           --prompt-file <dir>/prompt.txt openai <dir>/review
 
      (swap the provider argument to reroute; add `--effort low` for a quick
      check, or `--model <id>` for a specific model. Gemini is the one backend
