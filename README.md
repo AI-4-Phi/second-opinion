@@ -132,6 +132,8 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
   — endpoints, request shapes, measured provider behavior
 - [skills/second-opinion/SKILL.md](skills/second-opinion/SKILL.md) — the skill
   itself (what Claude follows)
+- [skills/second-opinion/routing.md](skills/second-opinion/routing.md) — which
+  backend, model and effort for which review; both skills read it
 - [skills/direct/SKILL.md](skills/direct/SKILL.md) — the direct launcher:
   several providers, line-numbered files, second rounds
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the pieces fit: fork, runner, the files

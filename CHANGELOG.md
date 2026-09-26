@@ -24,6 +24,23 @@
   path and the finish-reason check already did. Build mode never asks for
   more than one candidate, so its reviews do not change.
 - Reviewed by gpt-6-sol and Kimi, then z.AI on the fixes.
+- **One routing file for both skills.** Backends, routing and effort move
+  from the fork's SKILL.md to `skills/second-opinion/routing.md`. The fork
+  Reads it in step 3; `/second-opinion:direct` points the main session at it
+  instead of at three sections of the fork's SKILL.md, whose other sections
+  it had to tell the session to ignore.
+- **The fork writes earlier reviews as one fixed line.** Asked for a
+  "second in-depth opinion; OpenAI already reviewed", 3 of 13 forks on 0.5.0
+  still added to the request's words: one gave the earlier review a model
+  (`gpt-6-sol`), two a depth ("in depth", "first in-depth opinion"). The
+  fork's earlier-reviews part is now `Earlier reviews, in the requester's
+  words: <words>`, copied character for character, and nothing may be added
+  to those words anywhere in the prompt. `/second-opinion:direct` is
+  unchanged: its later rounds carry earlier findings on purpose.
+- **A fork that cannot read `routing.md` reports FAILED** (`cannot read
+  routing file`) instead of routing from memory, and tells the main session
+  to reinstall the plugin; the direct skill gives the same instruction.
+- Reviewed by gpt-6-sol and z.AI, then Kimi on the fixes.
 
 ## 0.5.0 — 2026-09
 

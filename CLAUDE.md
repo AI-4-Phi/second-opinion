@@ -20,8 +20,9 @@ itself), and `run-request.py`, which both skills launch.
   `gpt-6-sol`).
 - One home per fact: the envelope statuses/exit codes, the gate's blocking
   conditions, the reader rule, and the orphan-kill live in api-reference.md;
-  SKILL.md keeps routing and the fork contract (PREPARED/FAILED) only. Don't
-  duplicate.
+  backends, routing and effort in routing.md, which both skills read; the
+  fork's SKILL.md keeps the fork's workflow, prompt construction and
+  contract (PREPARED/FAILED). Don't duplicate.
 - In any SKILL.md, the harness substitutes `$ARGUMENTS` and `$` followed by a
   digit (`$0`, `$1`, …) with the invocation's arguments, everywhere in the
   text (verified 2026-09-26: an awk `$0` example became the first argument

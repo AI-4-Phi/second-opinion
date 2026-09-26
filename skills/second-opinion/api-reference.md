@@ -351,8 +351,8 @@ Verified 2026-09-25 (`grok-4.3`: 2026-09-26) — each id listed by the
 provider's `GET /models` and answered a live completion through the runner at
 the shared `high`. Prices live in the skill README's model table; measured
 per-review costs in the root README's Cost section. To change a backend's default without
-editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see SKILL.md
-"Available Backends"). Gemini's models are in "Gemini backend" below.
+editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
+[routing.md](routing.md)). Gemini's models are in "Gemini backend" below.
 
 | Provider | Model | Role |
 |---|---|---|

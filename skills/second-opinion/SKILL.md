@@ -43,70 +43,16 @@ main session launches, not from this fork. Keep the line.
 - User-facing usage guide and model details: [README.md](README.md)
 - Runner CLI, envelope statuses, endpoints, measured provider behavior:
   [api-reference.md](api-reference.md)
+- Backends, routing and effort: [routing.md](routing.md)
 
-## Available Backends
+## Choosing a backend
 
-| Backend | Requires | Alternatives to the runner's default |
-|---------|----------|--------------------------------------|
-| Kimi | `MOONSHOT_API_KEY` | (none — Moonshot documents `reasoning_effort` for `kimi-k3` only) |
-| Gemini | `GEMINI_API_KEY` | (none) |
-| OpenAI | `OPENAI_API_KEY` | `gpt-6-sol` (in-depth review; the default `gpt-6-luna` is the quick and general-purpose check) |
-| DeepSeek | `DEEPSEEK_API_KEY` | (none) |
-| xAI | `XAI_API_KEY` | `grok-4.7` (listed, not recommended: the slowest and priciest per review tested) |
-| z.AI | `ZAI_API_KEY` | `glm-5.3-flash` (listed, not recommended: in testing it judged a planted bug's code correct). A `/models` listing isn't access ([api-reference.md](api-reference.md)) |
-| MiniMax | `MINIMAX_API_KEY` | (none) |
-
-Per-provider **default models live in the runner**
-(`scripts/run-request.py`, `DEFAULT_MODELS`, verified 2026-09) and are
-resolved at launch: `--model` flag, else `SECOND_OPINION_<PROVIDER>_MODEL`
-from the environment, else the built-in default. So pass `--model` in exactly
-two cases: the user named a model — a built-in default included, since the
-flag is what keeps an env override from replacing the model they named — or
-the routing row you chose names a model that is not that provider's runner
-default (today only `gpt-6-sol`). Otherwise omit it. An override env var
-needs no special handling for effort: the runner's default is keyed to the
-provider, not to the model id, so an overridden model gets the same `high`.
-
-**Default backend: OpenAI.** Its runner default, `gpt-6-luna`, is the quick
-and general-purpose check; an in-depth review goes to `gpt-6-sol` (see the
-routing table). Use another backend when the user asks or for an additional
-independent perspective — seven families means up to seven independent
-opinions. You cannot check API keys (no shell); if the chosen backend's key
-turns out to be missing, the runner reports it seconds after launch and the
-main session reroutes.
-
-### Routing guidance
-
-| Situation | Prefer |
-|-----------|--------|
-| Quick or general-purpose check (default) | OpenAI (runner default `gpt-6-luna`) |
-| In-depth review: the user asks for a thorough or in-depth review, or the target is a spec, design, implementation plan, whole-branch or pre-merge diff, completed implementation, or debugging that is stuck | OpenAI `--model gpt-6-sol`. For a second in-depth opinion, Kimi, and z.AI third — but for a spec or document, z.AI second and Kimi third (the maintainer's ranking). The default `high` covers depth; go higher only for the hardest problems (see Effort) |
-| Fast feedback | OpenAI (its default `gpt-6-luna`), then Gemini |
-| Cheap feedback | OpenAI (its default `gpt-6-luna`), DeepSeek, or xAI. xAI's default `grok-4.3` is cheap and fast, but check what it reports: in testing it asserted bugs that were not there. Kimi is neither fast nor cheap |
-| File-heavy or long documents | Any default (each takes ~1M tokens; MiniMax doubles its price past 512k input tokens, xAI past 200k) |
-| Another independent opinion | Any unused family — different family, different blind spots |
-| No OpenAI/Kimi credits | Gemini (free tier) or DeepSeek (near-free) |
-
-Apply the table in this order. (1) A provider or model the user names wins;
-so does an explicit ask for a quick, fast or cheap check. (2) Otherwise the
-in-depth row applies when its trigger matches; when unsure, the request is
-not in-depth, and the default quick check applies. (3) "Second" and "third"
-in-depth opinions count the external in-depth reviews of the same target
-that the request names as done ("OpenAI already reviewed"), or the count it
-asks for ("a third opinion"): with none, the review goes to `gpt-6-sol`,
-even when the user says "a second opinion" (the skill's name, not a count).
-(4) The long-documents row
-only adjusts cost; it never replaces the route chosen above.
-
-**Effort:** the runner sends `reasoning_effort: high` to every backend that
-takes it, so **omit `--effort`** and the review runs at that shared level
-whichever provider you picked. Pass **`--effort low`** only when the user
-wanted a quick or cheap check. Higher than `high` (`xhigh` on OpenAI / xAI,
-`max` on kimi / DeepSeek / z.AI) is for genuinely hard problems and only where
-the backend offers it. Never use `medium` as a middle ground: kimi and z.AI
-reject it, and DeepSeek accepts it but does not document it. **Never** pass
-`--effort` for gemini: it has no such parameter and the runner refuses the
-flag.
+The backends, the routing table and effort are in `routing.md`, next to this
+file (your skill-load context names the directory); `/second-opinion:direct`
+reads the same file. **Read it in step 3, every time**: a route chosen
+without it is a guess. If the Read fails, report FAILED and write no launch
+command. You cannot check API keys (no shell); `routing.md` says what
+happens when one is missing.
 
 ## When to Use
 
@@ -128,12 +74,15 @@ perspective might surface overlooked issues.
    **diff review** requested without a saved diff file → FAILED naming the
    one-line fix (`git diff > <file>`, re-invoke with that path); you cannot
    run `git diff` and must not reconstruct a diff by Reading files.
-3. **Choose the backend** from the routing table above. Add `--effort` only
-   to depart from the runner's shared `high` — `low` for a quick or cheap
-   check, higher where the backend offers it and the problem earns it (see
-   "Effort" above); never for gemini. Pass `--model` only in the two cases
-   "Available Backends" names: the user named a model, or the chosen routing
-   row names a non-default one (in-depth review → `gpt-6-sol`).
+3. **Read `routing.md`** in this skill's directory **and choose the
+   backend** with its routing table, in the order it gives. A failed Read →
+   FAILED naming the path; never route from memory. Add `--effort`
+   only to depart from the runner's shared `high` — `low` for a quick or
+   cheap check, higher where the backend offers it and the problem earns it
+   (its "Effort" section); never for gemini. Pass `--model` only in the two
+   cases its "Available Backends" names: the user named a model, or the
+   chosen routing row names a non-default one (in-depth review →
+   `gpt-6-sol`).
 4. **Pick a fresh WORKDIR.** Candidates, in order:
    `<session scratchpad>/second-opinion-<slug>`, then the same name with
    `-2`, `-3`, …. Probe each by **Reading `<candidate>/prompt.txt` with
@@ -199,20 +148,23 @@ brackets resolved: each flag present or absent, never literal. `launch.txt`
 gets the same concrete command (whitespace/line-wrapping aside).
 
     STATUS: FAILED — <no target supplied | cannot read target: <path> | cannot
-      write prompt file: <error> | diff review requested but no diff file supplied>
+      read routing file: <path> | cannot write prompt file: <error> | diff
+      review requested but no diff file supplied>
     <one line on what happened. No-target: the Request line named no target
       this fork can read (it cannot see the conversation); nothing was
-      prepared or sent. Diff
+      prepared or sent. Routing file: the plugin's install is incomplete;
+      reinstall it. Diff
       case: save it first — git diff > <file> — and re-invoke with that path.>
     MAIN SESSION: re-invoke with the target's file path in the args. If it keeps
       failing with a path in the request, use /second-opinion:direct, which
-      launches the runner from the main session.
+      launches the runner from the main session. Routing file: reinstall the
+      plugin first; /second-opinion:direct reads the same file.
 
 In PREPARED, emit `<skill-dir>` resolved to this skill's real absolute
 directory (your skill-load context names it) and `<WORKDIR>` resolved to the
 real absolute work directory — a PREPARED message containing a literal
-placeholder is a broken deliverable. FAILED names no path: the direct skill
-resolves its own.
+placeholder is a broken deliverable. FAILED names no runner path: the
+direct skill resolves its own.
 
 **Relay the path, never the content.** The review is on disk once run; the
 main session reads it there. Copying or summarizing it through a message can
@@ -228,17 +180,31 @@ this order, and nothing else:
 2. **The target from step 1, inlined**, however it reached you. Session
    instructions, CLAUDE.md files, memory, git state and files the request
    does not name are not part of it.
-3. **Earlier reviews**, when the request names them: quote the request's
-   words about them and add nothing, e.g. "OpenAI already reviewed this."
-   The routing table tells you what a review would use, not what an earlier
-   one did use.
+3. **Earlier reviews**, when the request says any were done, on this
+   version or an earlier one: one line, `Earlier reviews, in the
+   requester's words: <words>`, where `<words>` is the request's clause
+   about them (who reviewed, and anything it says they found), copied
+   character for character; line breaks become spaces. For the request
+   "second in-depth opinion; OpenAI already reviewed" the line is:
+
+       Earlier reviews, in the requester's words: OpenAI already reviewed
+
+   and for "second opinion on the parser, OpenAI said the retry loop never
+   ends":
+
+       Earlier reviews, in the requester's words: OpenAI said the retry loop never ends
+
+   Add nothing to those words anywhere in the prompt: no model, depth,
+   effort or finding they do not state. You know only the request's words, and the
+   routing table says what a review would use, not what an earlier one did
+   use. "A second opinion" alone names no earlier review.
 4. **The questions**: what kind of feedback you want.
 
 In this shape:
 
     I'm working on [TASK]. My current approach is [APPROACH].
     Files to review: [THE TARGET, INLINED]
-    [EARLIER REVIEWS, in the request's words; omit if none]
+    [THE EARLIER-REVIEWS LINE; omit if none]
     Questions:
     1. What problems do you see with this approach?
     2. What edge cases might I be missing?
@@ -247,5 +213,6 @@ In this shape:
 Context budgets (2026-09-25; each provider's `/models` where it reports one,
 else its docs): every default model takes ~1M tokens; xAI's non-default
 `grok-4.7` takes 500k. Cost rises with size for MiniMax and xAI (see the
-long-documents row), so for very large content include only the relevant
+long-documents row in `routing.md`), so for very large content include only
+the relevant
 sections where you can.

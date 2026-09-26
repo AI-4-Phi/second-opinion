@@ -77,10 +77,11 @@ these parts, in this order, and nothing else:
 `<provider>` is a provider name, not a model id: `openai`, `kimi`, `zai`,
 `deepseek`, `xai`, `minimax`, `gemini`.
 
-- **Which provider for which review:** the "Available Backends" and "Routing
-  guidance" sections of `<base directory>/../second-opinion/SKILL.md`, and
-  its paragraph on effort. Read only those sections: the rest of that file is
-  the contract of the `/second-opinion` fork (prepare only, no shell, a
-  PREPARED or FAILED message) and does not apply to you.
+- **Which provider, model and effort for which review:** Read
+  `<base directory>/../second-opinion/routing.md` before choosing them; the
+  `/second-opinion` fork routes by the same file. If that Read fails, the
+  plugin's install is incomplete: reinstall it rather than route from
+  memory. Don't follow that skill's SKILL.md: it
+  is the fork's contract (prepare only, no shell) and does not apply to you.
 - **Models, effort levels, envelope statuses, error classes and provider
   quirks:** `<base directory>/../second-opinion/api-reference.md`.
