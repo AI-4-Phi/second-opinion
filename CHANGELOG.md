@@ -9,7 +9,7 @@
   providers on one prompt, a second round that carries the first round's
   findings and declines, or a prompt already written. It finds the runner
   from the harness's "Base directory for this skill" line, creates its work
-  directory with `mkdir` (no `-p`) so two sessions cannot share one, and
+  directory with `mkdir` (no `-p`) so two direct sessions cannot share one, and
   holds the same closed four-part prompt as the fork, with an explicit
   warning that the main session sees private context the fork does not.
   Facts stay in `api-reference.md` and the fork's routing sections.
