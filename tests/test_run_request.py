@@ -860,6 +860,66 @@ class TruncationTests(_RunnerFixture, unittest.TestCase):
         self.assertEqual(envelope["usage"], {"total_tokens": 9})
         self.assertNotIn("detail", envelope)
 
+    def cut_after(self, events):
+        """Send events, then stall past a 1 s deadline: an interruption."""
+        def respond(h):
+            h.send_sse(events)
+            time.sleep(3)
+            h.send_sse([{"choices": [], "usage": {"total_tokens": 9}}, "[DONE]"])
+        url = self.start_server(respond)
+        req = self.write_request({"model": "kimi-k3", "reasoning_effort": "low"})
+        with self.patch_provider("kimi", url):
+            return run_main(["kimi", req, self.base],
+                            {"MOONSHOT_API_KEY": "k", "DEADLINE": "1",
+                             "ATTEMPTS": "1"})
+
+    def test_interruption_after_a_finish_reason_stays_completed(self):
+        # the finish reason ends the text; the break only costs the usage
+        # totals, and a false partial would discard a real finding
+        envelope, code = self.cut_after([
+            {"choices": [{"index": 0, "finish_reason": "stop",
+                          "delta": {"content": "the whole review"}}]}])
+        self.assertEqual(code, 0)
+        self.assertEqual(envelope["status"], "completed")
+        self.assertEqual(envelope["finish_reason"], "stop")
+        self.assertNotIn("detail", envelope)
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "the whole review")
+
+    def test_interruption_after_a_cap_reason_is_a_cap_partial(self):
+        envelope, code = self.cut_after([
+            {"choices": [{"delta": {"content": "finding one, and fin"}}]},
+            {"choices": [{"index": 0, "finish_reason": "length",
+                          "delta": {}}]}])
+        self.assertEqual(code, 3)
+        self.assertEqual(envelope["status"], "partial")
+        self.assertIn("token cap", envelope["detail"])
+
+    def test_interruption_after_a_cap_with_no_text_is_output_cap(self):
+        envelope, code = self.cut_after([
+            {"choices": [{"index": 0, "finish_reason": "length",
+                          "delta": {"content": ""}}]}])
+        self.assertEqual(code, 1)
+        self.assertEqual(envelope["error_class"], "output_cap")
+
+    def test_gemini_stream_reads_the_first_candidate_only(self):
+        # the finish reason is tracked on candidate 0, and the non-streaming
+        # path extracts candidate 0 alone; streaming must match both
+        url = self.start_server(lambda h: h.send_sse([
+            {"candidates": [
+                {"index": 0, "finishReason": "STOP",
+                 "content": {"parts": [{"text": "first"}]}},
+                {"index": 1, "content": {"parts": [{"text": "second"}]}}]}]))
+        req = self.write_request({"contents": []})
+        tmpl = url + "/v1beta/models/{model}:generateContent"
+        with self.patch_provider("gemini", tmpl):
+            envelope, code = run_main(
+                ["gemini", req, self.base, "gemini-3.8-flash"],
+                {"GEMINI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        with open(envelope["text_path"]) as f:
+            self.assertEqual(f.read(), "first")
+
     def test_empty_close_without_an_end_marker_stays_empty(self):
         # no text at all is still `empty` (retryable), with its own detail
         url = self.stream([{"choices": [{"delta": {"content": ""}}]}])

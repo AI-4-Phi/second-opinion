@@ -7,12 +7,21 @@
   review, so a stream the provider closed early could pass as complete. A
   clean end now needs `[DONE]` or a finish reason; text followed by neither
   is reported as `partial` (exit 3) with a `detail` naming the missing
-  marker, and no text at all stays `empty`. A live probe of all seven
-  backends (2026-09-26) found every one sends a finish reason on a clean end,
-  while minimax and gemini never send `[DONE]`, so no backend needs an
-  exception; all seven then completed through the changed runner.
-  api-reference.md no longer says every OpenAI-compatible stream ends with
-  `[DONE]`.
+  marker. With no text the run is `empty` or `output_cap`, as before. A live
+  probe of all seven backends (2026-09-26) found every one sent a finish
+  reason on a clean end, while minimax and gemini sent no `[DONE]`, so no
+  backend needs an exception; all seven then completed through the changed
+  runner. api-reference.md no longer says every OpenAI-compatible stream
+  ends with `[DONE]`.
+- **A stream that breaks after its finish reason is `completed`.** The
+  reason arrives with the last text or after it, so the break costs only the
+  usage totals; it used to be reported `partial`, which tells the reader to
+  discard a finding that was whole. A cap reason still means `partial`, and
+  a cap with no text is `output_cap` rather than a retried `empty`.
+- **Streamed gemini output reads candidate 0 only**, as the non-streaming
+  path and the finish-reason check already did. Build mode never asks for
+  more than one candidate, so its reviews do not change.
+- Reviewed by gpt-6-sol and Kimi.
 
 ## 0.5.0 — 2026-09
 

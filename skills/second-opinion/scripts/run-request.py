@@ -72,7 +72,8 @@ gets a typed result instead of parsing the log file:
   completed:   {"status":"completed","provider","model","http_status","attempts",
                 "usage","text_path","chars","log_path"[,"finish_reason"]}
   partial:     {"status":"partial", ...same..., "detail"}   run cut short: the
-                stream was interrupted, or the model hit its output-token cap
+                stream was interrupted or ended without an end marker, or the
+                model hit its output-token cap
   failed:      {"status":"failed","provider","model","error_class","http_status",
                 "attempts","detail","raw_path","log_path"}
   usage_error: {"status":"usage_error","detail"}
@@ -578,11 +579,11 @@ def retryable(error_class, detail, provider):
 def sse_delta(provider, event):
     """Pull (text_fragment, usage) out of one decoded SSE event."""
     if provider == "gemini":
-        text = ""
-        for cand in event.get("candidates") or []:
-            for part in (cand.get("content") or {}).get("parts") or []:
-                if part.get("text") and not part.get("thought"):
-                    text += part["text"]
+        # candidate 0 only, like extract_text() and finish_reason()
+        cands = event.get("candidates") or [{}]
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        text = "".join(p["text"] for p in parts
+                       if p.get("text") and not p.get("thought"))
         return text, event.get("usageMetadata") or {}
     choices = event.get("choices") or []
     delta = (choices[0].get("delta") or {}) if choices else {}
@@ -601,9 +602,12 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
     never lost.
 
     A clean end needs an end marker: `[DONE]` or a finish reason. Probed
-    2026-09-26, every backend sends a finish reason on a clean end; minimax
-    and gemini never send `[DONE]`. So text followed by a quiet EOF with
-    neither marker is a stream cut short, not a finished review.
+    2026-09-26, every backend sent a finish reason on a clean end; minimax
+    and gemini sent no `[DONE]`. So text followed by a quiet EOF with
+    neither marker is a stream cut short, not a finished review. The
+    converse holds too: the finish reason arrives with the last text or
+    after it, so a break after one costs only the usage totals, and stop
+    stays None.
     """
     chunks, usage, stop, finish, done = [], {}, None, "", False
     out = open(text_path, "w")
@@ -639,7 +643,10 @@ def stream_sse(resp, provider, text_path, logline, deadline_ts):
         stop = "stream interrupted: %s" % str(reason)[:200]
     finally:
         out.close()
-    if stop is None and not done and not finish and chunks:
+    if stop is not None and finish:
+        logline("%s, after finish_reason=%s: the text is whole" % (stop, finish))
+        stop = None
+    elif stop is None and not done and not finish and chunks:
         stop = ("stream ended without an end marker (no [DONE], no finish "
                 "reason): the provider closed the connection before saying "
                 "the review was finished")

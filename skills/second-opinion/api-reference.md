@@ -191,20 +191,24 @@ never as a clean stop.
 carries a marker: the `[DONE]` sentinel or a finish reason. If text arrived
 and the connection then closed quietly with neither, nothing says the provider
 finished, so the runner reports `partial`, its `detail` naming the missing
-marker. With no text at all the run stays `empty`. Probed 2026-09-26, each
-default model on a short prompt: all seven backends send a finish reason on a
-clean end, five of them also `[DONE]`; minimax and gemini never send `[DONE]`,
-so for them the finish reason is the only marker.
+marker. With no text at all the run is `empty` as before, or `output_cap`
+when a cap reason explains it. The converse holds too: the finish reason
+arrives with the last text or after it, so a stream that breaks after one
+lost only the usage totals and is not reported as cut (a cap reason still
+makes it `partial`). Probed 2026-09-26, each default model on a short prompt:
+all seven backends sent a finish reason on a clean end, five of them also
+`[DONE]`; minimax and gemini sent no `[DONE]`, so for them the finish reason
+is the only marker.
 
 Wire details, if debugging: OpenAI-compatible backends take `stream: true` in
 the body (the runner injects it, along with `stream_options.include_usage` so
 the final event carries token counts) and emit `choices[0].delta.content`,
-terminated by `data: [DONE]`, except minimax, which just closes after its usage
-event. That trailing usage event carries `choices: []`, so the finish reason
+terminated by `data: [DONE]`, except minimax, which closed after its usage
+event in the 2026-09-26 probe. That trailing usage event carries `choices: []`, so the finish reason
 arrives one event earlier. Gemini instead needs a different verb and query
 param — `:streamGenerateContent?alt=sse` (the runner rewrites the URL) — and
 emits `candidates[0].content.parts[].text` with no
-`[DONE]` sentinel.
+`[DONE]` sentinel. The runner reads candidate 0 only, streaming or not.
 
 API keys (each must be exported in the environment; the runner refuses with a
 `usage_error` naming the missing var): `MOONSHOT_API_KEY`, `OPENAI_API_KEY`,
