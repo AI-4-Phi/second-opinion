@@ -348,7 +348,7 @@ other backends do not need them here.
 
 ### Models
 
-Verified 2026-09-25 (`grok-4.3`: 2026-09-26) — each id listed by the
+Verified 2026-09-25 (`grok-4.3`: 2026-09-26; `gpt-6.1-sol`: 2026-09-29) — each id listed by the
 provider's `GET /models` and answered a live completion through the runner at
 the shared `high`. Prices live in the skill README's model table; measured
 per-review costs in the root README's Cost section. To change a backend's default without
@@ -360,6 +360,7 @@ editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
 | Kimi | `kimi-k3` | flagship (**default**); 1M ctx; always-on reasoning |
 | OpenAI | `gpt-6-luna` | cheap tier (**default**); 1.05M ctx (its predecessor `gpt-5.6-luna` was tier-gated on some keys — see the flaky-401 section) |
 | OpenAI | `gpt-6-sol` | flagship; the in-depth pick; 1.05M ctx |
+| OpenAI | `gpt-6.1-sol` | successor to `gpt-6-sol` (2026-09-29), same price, 1.05M ctx; available but not yet the in-depth pick — see the naming traps below, and the root README's Cost section for why |
 | DeepSeek | `deepseek-flash` | **default** (DeepSeek-V4.1-Flash); 1M ctx |
 | xAI | `grok-4.3` | **default**; 1M ctx |
 | xAI | `grok-4.7` | newer, dearer; 500k ctx |
@@ -376,6 +377,22 @@ Naming traps (verified 2026-09-25 unless dated):
   (`output_cap`).
 - GPT-6 has `-sol`, `-luna` and `-astra`; there is no `gpt-6-terra` and no
   bare `gpt-6`. `gpt-5.6-sol` is still listed, at twice `gpt-6-sol`'s price.
+- GPT-6.1 exists only as `-sol`, released 2026-09-29; an expected
+  `gpt-6.1-astra` release was cancelled the day before (2026-09-28) over
+  safety-eval regressions, and there is no `gpt-6.1-luna`. `gpt-6.1-sol`
+  also drops the
+  `none` effort tier that `gpt-6-sol`/`-luna` still accept — see the
+  `reasoning_effort` table below.
+- A verification trap, not an ID trap: probing OpenAI's `reasoning_effort`
+  ladder with an invalid value only gives the right answer on the endpoint
+  and parameter shape this runner
+  actually sends: `POST /v1/chat/completions` with a top-level
+  `"reasoning_effort"` field. `POST /v1/responses` with
+  `"reasoning":{"effort":...}` is a different parameter with its own enum
+  (it documents `minimal` and `max`, which this runner never sends) — probing
+  that endpoint instead gives a wrong reading of what's actually available
+  here. Caught this way on 2026-09-29: an initial `/v1/responses` probe
+  wrongly suggested OpenAI had newly added `max`.
 - DeepSeek retired `deepseek-v4-flash` on 2026-09-10. The id still answers,
   but `deepseek-flash` serves it — the response's `model` field says so. The
   older `deepseek-chat`/`deepseek-reasoner` aliases likewise resolve to the
@@ -471,6 +488,7 @@ uniform:
 |---|---|---|
 | Kimi `kimi-k3` | `low`, `high`, `max` — no `medium`; always reasons regardless | 2026-09-25, `GET /v1/models` |
 | OpenAI `gpt-6-sol`, `gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh` — no `max` | 2026-09-25, the 400 names the set |
+| OpenAI `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh` — no `none`, no `max` | 2026-09-29, the 400 names the set (see the naming traps above for the endpoint this must be probed on) |
 | DeepSeek `deepseek-flash`, `deepseek-v4-pro` | `low`, `high`, `max` per `/models`; `medium` and `xhigh` also return 200 and carry `high`'s prompt overhead on `deepseek-v4-pro` | 2026-09-25 |
 | z.AI `glm-5.3`, `-flash`, `-flashx` | `low`, `high`, `max` — no `medium`, no `xhigh` | 2026-08-23 and 2026-09-25, error 1210 names the set |
 | MiniMax `MiniMax-M3` | every level returns 200; effect unestablished | 2026-08-23 |

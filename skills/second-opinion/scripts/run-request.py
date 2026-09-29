@@ -249,9 +249,10 @@ HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-flash",
 # provider's GET /models and by a live completion through this runner at the
 # shared "high" (gemini: at its own thinking default, having no such
 # parameter). openai's default is the quick-check tier; SKILL.md routes
-# in-depth reviews to gpt-6-sol with an explicit --model. Override without
-# a release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build mode only;
-# legacy mode never reads env for its model.
+# in-depth reviews to gpt-6-sol with an explicit --model (gpt-6.1-sol,
+# verified 2026-09-29, is a same-price alternative — see routing.md). Override
+# without a release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build
+# mode only; legacy mode never reads env for its model.
 DEFAULT_MODELS = {
     "kimi":     "kimi-k3",
     "openai":   "gpt-6-luna",

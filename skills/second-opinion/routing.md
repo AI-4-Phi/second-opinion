@@ -9,7 +9,7 @@ it picks a backend, and `/second-opinion:direct` reads it in the main session.
 |---------|----------|--------------------------------------|
 | Kimi | `MOONSHOT_API_KEY` | (none — Moonshot documents `reasoning_effort` for `kimi-k3` only) |
 | Gemini | `GEMINI_API_KEY` | (none) |
-| OpenAI | `OPENAI_API_KEY` | `gpt-6-sol` (in-depth review; the default `gpt-6-luna` is the quick and general-purpose check) |
+| OpenAI | `OPENAI_API_KEY` | `gpt-6-sol` (in-depth review; the default `gpt-6-luna` is the quick and general-purpose check). `gpt-6.1-sol`, released 2026-09-29 at the same price, is also available but not yet the in-depth default — it missed the one real bug in a same-day bake-off (root README, Cost) |
 | DeepSeek | `DEEPSEEK_API_KEY` | (none) |
 | xAI | `XAI_API_KEY` | `grok-4.7` (listed, not recommended: the slowest and priciest per review tested) |
 | z.AI | `ZAI_API_KEY` | `glm-5.3-flash` (listed, not recommended: in testing it judged a planted bug's code correct). A `/models` listing isn't access ([api-reference.md](api-reference.md)) |

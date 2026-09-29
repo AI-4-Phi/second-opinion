@@ -70,7 +70,7 @@ policy if that matters for your content.
 
 ## Model details
 
-Verified 2026-09-25 (`grok-4.3`: 2026-09-26): each model is listed by its
+Verified 2026-09-25 (`grok-4.3`: 2026-09-26; `gpt-6.1-sol`: 2026-09-29): each model is listed by its
 provider's `/models` and answered a live completion at the shared `high`
 (Gemini, which has no such parameter, at its own default). "Best for" follows
 the maintainer's ranking, informed by the measured reviews in the root
@@ -87,6 +87,7 @@ whole review costs: the root README's [Cost](../../README.md#cost) section.
 | Kimi | `kimi-k3` (default) | Second in-depth opinion (third for specs and docs) | $3.00 / $15.00 | 1M ctx; always-on thinking; slow |
 | OpenAI | `gpt-6-luna` (default) | Quick and general-purpose checks; first pick for a fast review | $0.10 / $0.50 | 1.05M ctx; its predecessor was tier-gated on some keys — if yours is refused, set `SECOND_OPINION_OPENAI_MODEL=gpt-6-sol` |
 | OpenAI | `gpt-6-sol` | In-depth review, first pick | $2.00 / $10.00 | 1.05M ctx |
+| OpenAI | `gpt-6.1-sol` | Same-price alternative to `gpt-6-sol`; not the default | $2.00 / $10.00 | 1.05M ctx; released 2026-09-29. Why it's not the default: root README's Cost section |
 | DeepSeek | `deepseek-flash` (default) | Cheap independent opinion | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak | 1M ctx; peak is 01–04 and 06–10 UTC on weekdays |
 | xAI | `grok-4.3` (default) | Cheap, fast opinion — check its findings | $1.25 / $2.50 up to 200k, $2.50 / $5.00 above | 1M ctx; reported bugs that were not there (root README, Cost) |
 | xAI | `grok-4.7` | Not recommended: slow and expensive | $2.00 / $6.00 up to 200k, $4.00 / $12.00 above | 500k ctx |

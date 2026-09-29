@@ -91,6 +91,7 @@ test exposed:
 | `deepseek-flash` | 3 | $0.03 off-peak ($0.06 peak) | 2–3 min | 9 of 9 | 1 of 3 |
 | `grok-4.3` | 3 | $0.03–0.05 | 1–1.5 min | 9 of 9 | 0 of 3 |
 | `MiniMax-M3` | 1 | $0.06 | 5.1 min | 3 of 3 | 0 of 1 |
+| `gpt-6.1-sol` † | 3 | $0.089–0.090 | under 1 min | 9 of 9 | 0 of 3 |
 | `glm-5.3` | 2 | $0.11–0.12 | 3.7 min | 5 of 6 | 0 of 2 |
 | `gpt-6-sol` | 2 | $0.11–0.12 | 1–2 min | 6 of 6 | 2 of 2 |
 | `gemini-3.8-flash` | 1 | $0.14 | 1.2 min | 3 of 3 | 0 of 1 |
@@ -104,6 +105,39 @@ bug in each of its three runs, and `glm-5.3-flash` twice judged a planted
 bug's code correct; no other model made more than one minor wrong claim. One
 diff is not a benchmark. Per-token prices: the
 [skill README's model table](skills/second-opinion/README.md#model-details).
+
+**† `gpt-6.1-sol`, measured 2026-09-29 at the shared `high` unless noted, is
+not a like-for-like row with the ones above** — don't read its "0 of 3"
+against `gpt-6-sol`'s "2 of 2" as a direct comparison. It ran on a
+reconstructed copy of the same diff and brief; the original bake-off's
+prompt file was never saved, so it had to be rebuilt from a written summary
+(the prompt is now saved, so this won't recur). It was compared instead
+against a same-day, same-prompt `gpt-6-sol` control (2 more runs, cost
+$0.091 and $0.100, not shown as its own row): that control scored 5 of 6
+planted and 1 of 2 real-bug on the reconstruction, both short of
+`gpt-6-sol`'s original 6 of 6 and 2 of 2 above — so this reconstruction is a
+harder prompt to *catch bugs in* for `gpt-6-sol` than the original was, even
+though it costs less (a shorter reconstruction, most likely); whether it's
+also harder for `gpt-6.1-sol` is unknown, since `gpt-6.1-sol` never ran the
+original. On the identical reconstructed prompt at `high`, `gpt-6.1-sol`
+matched or beat the control on planted-bug recall and cost, and found the
+same real design gap (`--model` losing to an env override on an
+explicitly-named default model) in 2 of 3 runs against the control's 1 of
+2 — but at `high` it never found the one real, unplanted bug (a stale
+`-request.json` surviving a refused rerun) that the control caught once.
+Two further `gpt-6.1-sol` runs at `--effort xhigh` did catch that bug once
+(1 of 2, matching the control's `high`-effort rate) — but cost $0.117 and
+$0.135 to do it, 30–50% above the control's cost. So raising effort closes
+the gap, just not for free; at matched cost and effort, `gpt-6.1-sol` is 0
+for 3 on the one real bug in this dataset, which is also the strongest
+signal either model produced on a 3-vs-2 (or 5-vs-4, counting the xhigh
+runs) sample. **`gpt-6-sol` stays the in-depth default** (routing.md);
+`gpt-6.1-sol` is documented as an available, same-price alternative
+(`--model gpt-6.1-sol` or `SECOND_OPINION_OPENAI_MODEL=gpt-6.1-sol`) rather
+than promoted on this evidence. Full run-by-run data, including the two
+control-run costs above:
+`.dev/model-value-2026-09-29.md` (maintainer's local dev notes, gitignored —
+not in the published repo).
 
 ## Updates
 
