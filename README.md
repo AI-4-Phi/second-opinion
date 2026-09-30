@@ -178,8 +178,9 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
 - **"`<PROVIDER>_API_KEY` not set"** — the key isn't in the environment Claude
   Code runs in; see Requirements above.
 - **The review's envelope reports `failed` with an `error_class`** — the fork
-  never runs a review itself, so this arrives only via `review-envelope.json`
-  (or the background task's own output), never as a fork reply. Deterministic
+  never runs a review itself, so this arrives only via
+  `review-<provider>-envelope.json` (or the background task's own output),
+  never as a fork reply. Deterministic
   classes (`bad_request`, `not_found`, genuine `auth`, `timeout_budget`,
   `output_cap`) mean the request itself is wrong for that backend; transient
   ones (`rate_limit`, `server_error`, `network`, `timeout`) are worth retrying.
@@ -194,16 +195,21 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
 - **The skill replies that it is "waiting for" or "monitoring" a background
   review** — it cannot be: a forked skill's final message is its last word,
   and the fork never launches anything itself — it only prepares
-  `prompt.txt` and `launch.txt` and hands the command to the main session. If
+  `prompt-<provider>.txt` and `launch-<provider>.txt` and hands the command to
+  the main session (`<provider>` is whichever backend the fork routed to —
+  `kimi`, `openai`, etc.; filenames are provider-qualified so that two forks
+  reviewing the same target for different providers never share a file). If
   the main session already launched the run, the outcome lands on disk once it
-  finishes — look in the session's scratchpad directory for
-  `second-opinion-*/review-envelope.json`, which says how the run ended and
-  where its text is, with `review-text.md` beside it. If it was never launched
+  finishes — look in the session's scratchpad directory for a
+  `second-opinion-*/review-*-envelope.json` (the middle `*` is the provider),
+  which says how the run ended and where its text is, with the matching
+  `review-*-text.md` beside it. If
+  it was never launched
   (the fork ended before the command ran, or the command was lost), the work
-  is still recoverable: `prompt.txt` and `launch.txt` sit in that same
-  directory. `launch.txt` is the authoritative copy of the command — run it as
-  a background task exactly as written, whether or not you still have the
-  PREPARED message.
+  is still recoverable: `prompt-<provider>.txt` and `launch-<provider>.txt`
+  sit in that same directory. `launch-<provider>.txt` is the authoritative
+  copy of that provider's command — run it as a background task exactly as
+  written, whether or not you still have the PREPARED message.
 - **"No task found with ID: second-opinion-second-opinion" (non-Anthropic
   driver only)** — this plugin targets Claude Code running on Anthropic models.
   The skill runs as a forked background task, and on a standard Anthropic driver
@@ -212,10 +218,10 @@ reports `bad_request` naming it), or it may accept the field and ignore it.
   e.g. a Kimi/Moonshot-backed setup), that harness may not surface the forked
   skill's completion to the parent — so the main session can error trying to
   poll for it, never seeing the handoff, and nothing gets launched. The fork's
-  work is still on disk: `.../second-opinion-<slug>/launch.txt` holds the exact
-  command it prepared — run it yourself as a background Bash task, and
-  `review-envelope.json` appearing in that same directory is the completion
-  signal. This affects any forked
+  work is still on disk: `.../second-opinion-<slug>/launch-<provider>.txt`
+  holds the exact command it prepared — run it yourself as a background Bash task, and
+  `review-<provider>-envelope.json` appearing in that same directory is the
+  completion signal. This affects any forked
   skill under such a setup, not just this one.
 - **A forked review returns a question, or `STATUS: FAILED — no target
   supplied`, instead of a review** — the forked skill found no target. Either the

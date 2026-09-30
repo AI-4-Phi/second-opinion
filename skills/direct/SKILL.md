@@ -39,7 +39,16 @@ these parts, in this order, and nothing else:
    the name exists, `-2`, `-3`, … until one succeeds; if it fails for any
    other reason, stop and report it. A taken name makes `mkdir` fail, so two
    direct sessions never share a directory. `/second-opinion` forks use the
-   same names but only check for `prompt.txt`, so write it right away.
+   same names but have no `mkdir` (no Bash): each treats a bare `prompt.txt`
+   in a candidate as taken and moves on — so your `mkdir` staking a
+   candidate, followed eventually by writing `prompt.txt` in step 2, is what
+   keeps forks out of it, the same as it always was. That exclusion only
+   starts once `prompt.txt` is actually on disk: a fork whose probe lands in
+   the narrow window after your `mkdir` but before your `prompt.txt` write
+   won't see it yet and could write its own provider-qualified files into
+   the directory you just claimed. Each fork also reads its own
+   `prompt-<provider>.txt` and `launch-<provider>.txt` back after writing to
+   catch a same-provider fork racing it for the same candidate.
 2. **Build `"<dir>/prompt.txt"` in part order**, adding files with the shell
    rather than retyping them:
    - part 1 with a heredoc (`cat > "<dir>/prompt.txt" <<'END_OF_PART'`);

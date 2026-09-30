@@ -6,8 +6,9 @@ description: >-
   work product — also when stuck debugging or wanting a different perspective.
   The skill only PREPARES the request — the handoff message names the exact
   command for the main session to launch. Work lands in
-  <session scratchpad>/second-opinion-*/ (prompt.txt and launch.txt when
-  prepared; review-text.md once run). The skill cannot see the conversation:
+  <session scratchpad>/second-opinion-*/ (prompt-<provider>.txt and
+  launch-<provider>.txt when prepared; review-<provider>-text.md once run).
+  The skill cannot see the conversation:
   put the target's file path, and any earlier reviews, in the args. To review
   uncommitted changes, save the diff to a file first and pass its path.
 argument-hint: [file path and question]
@@ -83,21 +84,66 @@ perspective might surface overlooked issues.
    cases its "Available Backends" names: the user named a model, or the
    chosen routing row names a non-default one (in-depth review →
    `gpt-6-sol`).
-4. **Pick a fresh WORKDIR.** Candidates, in order:
-   `<session scratchpad>/second-opinion-<slug>`, then the same name with
-   `-2`, `-3`, …. Probe each by **Reading `<candidate>/prompt.txt` with
-   `limit: 1`**:
-   - Read says the file does not exist → fresh; this is your WORKDIR.
-   - Read returns content, or says the file is empty → taken; probe the next.
+4. **Pick a fresh WORKDIR, per provider.** Every file this step writes is
+   named for the provider step 3 chose — `prompt-<provider>.txt`,
+   `launch-<provider>.txt`, and (in the launch command itself)
+   `review-<provider>-*` — so that two forks reviewing the *same* target for
+   *different* providers never touch each other's files, even if they end
+   up in the same WORKDIR. That's deliberate: it's the normal way several
+   providers' opinions get requested at once, and it should need no
+   coordination between the forks doing it.
+
+   Candidates, in order: `<session scratchpad>/second-opinion-<slug>`, then
+   the same name with `-2`, `-3`, …. Probe each candidate with **two Reads,
+   both with `limit: 1`**: `<candidate>/prompt.txt` (no provider — this is
+   `/second-opinion:direct`'s file, never a fork's; it only ever exists
+   because a direct session claimed this candidate first) and
+   `<candidate>/prompt-<provider>.txt`.
+   - Both say the file does not exist → fresh; this is your candidate.
+   - Either Read returns content, or says the file is empty → taken —
+     by a direct session (bare `prompt.txt`) or by an earlier request for
+     *this same provider* (`prompt-<provider>.txt`); probe the next
+     candidate either way. (A *different* provider's `prompt-<other>.txt`
+     existing here does not count as taken — that's a sibling review of the
+     same target, not a conflict.)
    - Anything else → FAILED, `cannot write prompt file: <what Read said>`.
 
-   A taken WORKDIR belongs to an earlier request; reusing it would let your
-   launch command's `rm -f` delete that request's review. **Write** the
-   composed prompt (see Prompt Construction) to `<WORKDIR>/prompt.txt`.
-   Then **Write the exact
-   launch command — the same line that goes in the PREPARED message — to
-   `<WORKDIR>/launch.txt`**. Write creates the directory for you. No
-   heredoc, no escaping, no jq.
+   A taken candidate belongs to an earlier request; reusing it would let
+   your launch command's `rm -f` delete that request's review. **Write** the
+   composed prompt (see Prompt Construction) to `<WORKDIR>/prompt-<provider>.txt`.
+   Then **Write the exact launch command — the same line that goes in the
+   PREPARED message — to `<WORKDIR>/launch-<provider>.txt`**. Write creates
+   the directory for you. No heredoc, no escaping, no jq.
+
+   **Then confirm you actually own it: Read BOTH files back — `prompt-<provider>.txt`
+   and `launch-<provider>.txt` — and compare each to what you just wrote**
+   (Read prefixes each line with a line number for display — that numbering
+   is not part of the file; compare the content, not the raw tool output).
+   Check both, not launch alone: a same-provider racer can overwrite your
+   prompt while leaving your launch command untouched, and a launch-only
+   check would miss exactly that — you'd return PREPARED with a command that
+   correctly names your model and effort but reads someone else's brief.
+   - Both Reads return exactly what you wrote → proceed to return PREPARED.
+   - Either Read returns something else, or says the file is missing → you
+     lost the race. Do not delete or touch what is there — it is the other
+     fork's real, in-flight claim. Probe the next candidate in the sequence
+     (`-2`, then `-3`, …) and redo this entire step (probe, write both
+     files, confirm) there.
+   - Five losses in a row within this invocation → FAILED, `WORKDIR
+     contention: lost the race on 5 consecutive candidates`.
+
+   Be precise about what this catches and what it doesn't. It catches a
+   same-provider racer whose overwrite lands between your write and your
+   read-back — regardless of whether their content differs from yours, not
+   only when it's identical. It **cannot** catch one that lands *after* your
+   read-back passes: nothing stops a write in the instant between that Read
+   and this fork's final message, with or without Bash. That narrower case
+   — two same-provider forks each finishing their own write-then-verify
+   before the other's overwrite arrives — is not fixable with Read and
+   Write alone; it needs an atomic primitive this fork does not have. It
+   requires a genuine duplicate dispatch to the same provider on the same
+   target, not just several providers requested together, so treat it as
+   rare, not as closed.
 5. **Return the PREPARED message.** That message is the entire deliverable.
    Its command must run **verbatim with zero edits**: it starts with the
    `rm -f` prefix, uses this skill's real absolute directory for
@@ -115,19 +161,29 @@ FAILED and why.
 
     STATUS: PREPARED (review not yet run — the main session must launch it)
     target: <one line: what is being reviewed>
-    prompt: <WORKDIR>/prompt.txt   (command also saved at <WORKDIR>/launch.txt)
+    prompt: <WORKDIR>/prompt-<provider>.txt   (command also saved at
+      <WORKDIR>/launch-<provider>.txt)
     backend: <provider>, model <id, or "runner default — the envelope reports it">,
       reasoning_effort <value, or "runner default high", or "none — gemini">
     MAIN SESSION — launch this as a BACKGROUND Bash task (it may run up to 90 min;
       a foreground call dies at 10 minutes and orphans the runner):
-      rm -f <WORKDIR>/review-envelope.json <WORKDIR>/review-text.md \
-        <WORKDIR>/review-request.json && \
+      rm -f <WORKDIR>/review-<provider>-envelope.json \
+        <WORKDIR>/review-<provider>-text.md \
+        <WORKDIR>/review-<provider>-request.json && \
       DEADLINE=5400 python3 <skill-dir>/scripts/run-request.py --long \
-        --prompt-file <WORKDIR>/prompt.txt [--model <id>] [--effort <value>] \
-        <provider> <WORKDIR>/review
-    outputs, all next to prompt.txt: review-envelope.json (the outcome — its
-      appearance after this launch IS the completion signal; read status
-      first), review-text.md (the review), review-log.txt (run/attempt trace)
+        --prompt-file <WORKDIR>/prompt-<provider>.txt [--model <id>] [--effort <value>] \
+        <provider> <WORKDIR>/review-<provider>
+    Every filename this fork writes is provider-qualified — prompt, launch
+      command and output base alike — so a WORKDIR shared with another
+      *provider's* request that happened to probe the same candidate (see
+      step 4) never collides: each provider's files are its own, matching
+      the pattern `/second-opinion:direct` already uses for two runs in one
+      WORKDIR. A same-provider request sharing the candidate is a different
+      case — step 4's own scoping covers it.
+    outputs, all next to prompt-<provider>.txt: review-<provider>-envelope.json
+      (the outcome — its appearance after this launch IS the completion
+      signal; read status first), review-<provider>-text.md (the review),
+      review-<provider>-log.txt (run/attempt trace)
     status guide: completed → read text_path; the review is the deliverable, not
       reproduced or summarized here — treat it as one data point, not authority.
       partial → real output cut early: completed findings are valid; discard the
@@ -135,26 +191,39 @@ FAILED and why.
       failed → error_class bad_request/not_found/genuine auth/timeout_budget/
       output_cap are final — fix what detail names;
       rate_limit/server_error/network/timeout/empty may succeed on relaunch. The
-      prompt file is reusable as-is; the provider argument is swappable (drop
-      --effort when swapping to gemini — it is the one backend that refuses
-      the flag).
+      prompt's content is reusable for a different provider, but not the file
+      itself: check prompt-<new provider>.txt in this WORKDIR does not
+      already exist before copying to it — a legitimate sibling review for
+      that provider may already be there — and if it does, swap to a fresh
+      WORKDIR (or a fresh candidate suffix) instead of overwriting it. Name
+      the new provider consistently in --prompt-file and the output base
+      (drop --effort when swapping to gemini — it is the one backend that
+      refuses the flag).
       usage_error → nothing was sent; detail names the fix.
-    If no envelope appears and the process is gone, review-log.txt says what
-      happened. To cancel: kill the pid in review-pid.txt, next to prompt.txt.
+    If no envelope appears and the process is gone, review-<provider>-log.txt says
+      what happened. To cancel: kill the pid in review-<provider>-pid.txt, next
+      to prompt-<provider>.txt.
 
 The `[--model <id>]` / `[--effort <value>]` brackets show the template's
 general form only — the message you emit contains a concrete command with the
-brackets resolved: each flag present or absent, never literal. `launch.txt`
-gets the same concrete command (whitespace/line-wrapping aside).
+brackets resolved: each flag present or absent, never literal.
+`launch-<provider>.txt` gets the same concrete command (whitespace/line-wrapping
+aside).
 
     STATUS: FAILED — <no target supplied | cannot read target: <path> | cannot
       read routing file: <path> | cannot write prompt file: <error> | diff
-      review requested but no diff file supplied>
+      review requested but no diff file supplied | WORKDIR contention: lost
+      the race on 5 consecutive candidates>
     <one line on what happened. No-target: the Request line named no target
       this fork can read (it cannot see the conversation); nothing was
       prepared or sent. Routing file: the plugin's install is incomplete;
       reinstall it. Diff
-      case: save it first — git diff > <file> — and re-invoke with that path.>
+      case: save it first — git diff > <file> — and re-invoke with that path.
+      Contention case: something is claiming this provider's WORKDIR files
+      faster than this fork can win one — likely two /second-opinion forks
+      both requesting this same provider on the same target at once; no
+      command was ever confirmed as this fork's own, so treat it as nothing
+      was sent, though losing attempts may have left orphaned files behind.>
     MAIN SESSION: re-invoke with the target's file path in the args. If it keeps
       failing with a path in the request, use /second-opinion:direct, which
       launches the runner from the main session. Routing file: reinstall the

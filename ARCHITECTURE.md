@@ -2,7 +2,8 @@
 
 How the pieces of this plugin fit together, as they are. Descriptive only — no
 proposals. Verified against the shipped code 2026-08-23 (plugin 0.3.1); the
-forked-skill and direct-skill rows, 2026-09-26 (plugin 0.5.1).
+forked-skill and direct-skill rows, 2026-09-26 (plugin 0.5.1); the forked
+skill's per-provider filenames, 2026-09-29.
 
 For what the skill *should* do, read
 [SKILL.md](skills/second-opinion/SKILL.md) — that file is the contract, and this
@@ -15,7 +16,7 @@ and the envelope/gate/orphan-cleanup facts, read
 | Piece | What it is | Model / runtime |
 |---|---|---|
 | Main session | The conversation the user is in. Invokes the skill, then launches the runner as a background Bash task once the fork hands back a PREPARED command; never reads the fork's contract in `SKILL.md` (the direct skill points it at `routing.md` only). | The session's own model |
-| Forked skill | A subagent started by the invocation. It sees `SKILL.md` with the request filled in, plus the session's instructions (CLAUDE.md files, memory index), but not the conversation (verified 2026-09-26), so the request must carry the target's path. Reads `SKILL.md` and does the plumbing: locate the target, inline it, compose the review prompt, choose backend and effort from `routing.md`, Write `prompt.txt` + `launch.txt`, hand back PREPARED (or FAILED). Tools: `Read`, `Write`, plus `Glob` and `Grep` in builds that have them — no shell, no dispatch (`disallowed-tools` blocks `Bash` and every delegation tool). | `sonnet`, pinned in frontmatter |
+| Forked skill | A subagent started by the invocation. It sees `SKILL.md` with the request filled in, plus the session's instructions (CLAUDE.md files, memory index), but not the conversation (verified 2026-09-26), so the request must carry the target's path. Reads `SKILL.md` and does the plumbing: locate the target, inline it, compose the review prompt, choose backend and effort from `routing.md`, Write `prompt-<provider>.txt` + `launch-<provider>.txt`, hand back PREPARED (or FAILED). Filenames are provider-qualified (2026-09-29) because the WORKDIR itself is not guaranteed exclusive to one fork — see "Where the files live" below. Tools: `Read`, `Write`, plus `Glob` and `Grep` in builds that have them — no shell, no dispatch (`disallowed-tools` blocks `Bash` and every delegation tool). | `sonnet`, pinned in frontmatter |
 | Direct skill | `skills/direct/SKILL.md`, loaded into the main session (no fork). The main session writes `prompt.txt` itself, adding files with the shell, and launches the runner once per provider on that one file, each run with its own output base. For prompts already written, several providers, line-numbered files and second rounds. | The session's own model |
 | Runner | `scripts/run-request.py`. Stdlib Python, no venv. Dual-mode CLI: build mode composes the request itself from `--prompt-file`/`--model`/`--effort`, legacy mode takes a pre-built `request.json`; either way it calls one provider endpoint, streams the response to disk, and prints one JSON envelope. | `python3` subprocess |
 | Provider | Kimi, Gemini, OpenAI, DeepSeek, xAI, z.AI or MiniMax, over HTTPS. Reads no local files. | External API |
@@ -33,10 +34,11 @@ and the envelope/gate/orphan-cleanup facts, read
         └────────┬─────────┘
            Write │
                  ▼
-   <WORKDIR>/prompt.txt + launch.txt   (fork-written; exist BEFORE the
-                                        runner starts)
+   <WORKDIR>/prompt-<provider>.txt + launch-<provider>.txt   (fork-written;
+                                        exist BEFORE the runner starts)
 
-        main session launches launch.txt's command as a BACKGROUND Bash task
+        main session launches launch-<provider>.txt's command as a BACKGROUND
+        Bash task
                  │
                  ▼
         ┌──────────────────┐
@@ -70,9 +72,21 @@ scratchpad is the **main session's** — a fork does not get its own (verified
 each landed under their respective main session's scratchpad UUID). So a glob under
 the main session's scratchpad reaches any fork's output.
 
-The runner is given an output base (`<WORKDIR>/review`) and derives every file from
-it: `-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`, `-envelope.json`, and (build
-mode only) `-request.json`.
+The runner is given an output base (`<WORKDIR>/review-<provider>`) and derives
+every file from it: `-raw.json`, `-text.md`, `-log.txt`, `-pid.txt`,
+`-envelope.json`, and (build mode only) `-request.json`. Same for the fork's
+own two files, `prompt-<provider>.txt` and `launch-<provider>.txt`. Every
+filename the fork touches is provider-qualified because the WORKDIR itself is
+not guaranteed exclusive to one request — two forks reviewing the same target
+for different providers land in the same WORKDIR by design (neither's
+provider-qualified files exist yet when the other probes, so both see it as
+fresh) and coexist there without collision; the qualification is what makes
+that safe rather than a race. A bare `prompt.txt` (no provider) belongs to
+`/second-opinion:direct`, never a fork; a fork's probe treats one as taken
+too, which is what keeps a fork from writing into a WORKDIR a direct session
+already claimed with its own `mkdir` — see skills/direct/SKILL.md for that
+exclusion's own narrow residual (the window between the `mkdir` and the
+direct session's own `prompt.txt` write).
 
 ## The launch boundary
 
@@ -86,8 +100,9 @@ Three runtime facts force it:
    runner running — hence `DEADLINE` and the pid file.
 
 So the fork never runs the runner itself: every review is prepared — Written to
-`prompt.txt` and `launch.txt` — and handed to the main session, which launches the
-exact `launch.txt` command as a background Bash task with `--long DEADLINE=5400`.
+`prompt-<provider>.txt` and `launch-<provider>.txt` — and handed to the main
+session, which launches the exact `launch-<provider>.txt` command as a
+background Bash task with `--long DEADLINE=5400`.
 The fork cannot block on the runner synchronously instead: fact 1 caps a
 foreground call at 10 minutes while the long path runs `DEADLINE=5400`, so the
 prepared handoff is the only viable shape.
@@ -110,7 +125,8 @@ second, contradictory envelope. The status → exit code table lives in
 Lifetime of a run's files:
 
 ```
-    prompt.txt, launch.txt written by the fork         (before the runner starts)
+    prompt-<provider>.txt, launch-<provider>.txt written by the fork
+                                                        (before the runner starts)
 t0  output base known → any previous envelope removed, and (build mode only)
     any previous -request.json with it, so a refused run leaves neither
     (build mode only) gate + key checks pass → -request.json written

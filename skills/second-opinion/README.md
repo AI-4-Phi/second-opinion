@@ -26,8 +26,8 @@ line-numbered files, or a second round that carries earlier findings), use
 ## How it executes
 
 The skill always *prepares* a review — it never runs one itself. It writes the
-composed prompt to `prompt.txt` and the exact `scripts/run-request.py` launch
-command to `launch.txt` in a scratch work directory, then returns
+composed prompt to `prompt-<provider>.txt` and the exact `scripts/run-request.py`
+launch command to `launch-<provider>.txt` in a scratch work directory, then returns
 `STATUS: PREPARED` with that command. This is by design, not a fallback: every
 review takes this path, regardless of size or reasoning effort — there is no
 synchronous shortcut.
@@ -35,8 +35,9 @@ synchronous shortcut.
 The main session launches the returned command as a background task. The
 review then runs as a plain background process, outside the skill — the fork
 that prepared it has already ended by the time the review finishes, so it
-cannot report back. The envelope file (`review-envelope.json`) appearing in
-the work directory is the completion signal: its appearance is what the main
+cannot report back. The envelope file (`review-<provider>-envelope.json`)
+appearing in the work directory is the completion signal: its appearance is
+what the main
 session watches for, and Claude reads the review from disk once it's there.
 The skill does not paste the review back through the fork or summarize it,
 because a summary of a technical review loses the specific objections that
