@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Kimi's default is `kimi-k3.1-pro`** (released 2026-10-23; $2 / $10 per
+  million tokens against `kimi-k3`'s $3 / $15). On the saved bake-off prompt,
+  same day, at `high`: it found all planted bugs in 3 runs and the real bug
+  in 1, at $0.13–0.17 and 1.5–2.2 min a review. `kimi-k3` missed the real
+  bug and one planted bug in both of its 2 runs, at $0.28 and 3.7–4.4 min.
+  `kimi-k3` stays available through `--model` or `SECOND_OPINION_KIMI_MODEL`.
+- **The gate knows the K3.1 ids.** `kimi-k3.1-pro` and
+  `kimi-k3.1-pro-highspeed` default to `max` like `kimi-k3`, so a hand-built
+  body for either with no `reasoning_effort` is now refused in the foreground.
+- **Kimi does not reject unknown effort levels.** Its `/models` lists only
+  `low`, `high` and `max`, but on 2026-10-23 `medium` and an invented level
+  returned 200 on all three K3 ids. The docs had said, from the listing
+  alone, that Kimi answers `medium` with a 400; they no longer do.
+
 ## 0.6.0 — 2026-10
 
 - **Personal information is replaced before a request is sent.** The runner

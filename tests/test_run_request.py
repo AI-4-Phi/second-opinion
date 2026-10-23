@@ -153,11 +153,15 @@ class GateTests(unittest.TestCase):
                              set(), effort)
 
     def test_kimi_unset_effort_blocks(self):
-        self.assertEqual(self.kinds({"model": "kimi-k3"}), {"effort"})
+        # All three K3 ids report default_effort "max" in /v1/models.
+        for model in ("kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"):
+            self.assertEqual(self.kinds({"model": model}), {"effort"}, model)
 
     def test_kimi_low_effort_passes(self):
-        self.assertEqual(self.kinds({"model": "kimi-k3", "reasoning_effort": "low"}),
-                         set())
+        for model in ("kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"):
+            self.assertEqual(
+                self.kinds({"model": model, "reasoning_effort": "low"}),
+                set(), model)
 
     def test_deepseek_unset_effort_blocks(self):
         # An omitted field means "high" on both models (their /models

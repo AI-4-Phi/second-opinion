@@ -45,16 +45,17 @@ never reads the env var.
 
 `--effort` takes `low`, `medium`, `high`, `xhigh`, or `max`, case-insensitive,
 lowercased into the body before it is sent. Per-provider tier validity is
-**not** validated here — e.g. `kimi-k3` rejecting `"medium"` (see its quirks
-below) surfaces as the provider's own 400, classified `bad_request`, rather
+**not** validated here — e.g. `glm-5.3` rejecting `"medium"` (see the
+`reasoning_effort` table below) surfaces as the provider's own 400,
+classified `bad_request`, rather
 than as a decay-prone table baked into the runner. The exception is gemini,
 whose `xhigh`/`max` the runner refuses before sending.
 
 **Omitting `--effort` means `DEFAULT_EFFORT`, which is `"high"`.** Every
 provider that has the parameter gets the same level, so a review's depth is a
 property of the skill rather than of whichever vendor default it happened to
-land on. `high` is the highest level every backend accepts: `kimi-k3` and
-`glm-5.3` have no `"medium"`, which rules out the middle, and `xhigh`/`max`
+land on. `high` is the highest level every backend accepts: `glm-5.3` has
+no `"medium"`, which rules out the middle, and `xhigh`/`max`
 are not offered everywhere. Pass `--effort low` for a quick check.
 
 This injection is **provider-keyed, not model-keyed** — including for a model
@@ -257,9 +258,10 @@ running in the background. Blocking conditions (any one is enough):
 - the serialized request body is >= 32768 bytes;
 - `reasoning_effort` is `high`, `xhigh`, or `max`;
 - the resolved model is in `HIGH_EFFORT_BY_DEFAULT` (`kimi-k3`,
-  `deepseek-v4-pro`, `deepseek-flash`, `grok-4.7`) and no `reasoning_effort`
+  `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`, `deepseek-v4-pro`,
+  `deepseek-flash`, `grok-4.7`) and no `reasoning_effort`
   was set — those models reason at `high` or above when the field is absent
-  (`kimi-k3` at `max`, the others at `high`), which makes the request
+  (the Kimi ids at `max`, the others at `high`), which makes the request
   wire-identical to the condition above. Only reachable in legacy mode: build
   mode always resolves an effort.
 
@@ -403,7 +405,8 @@ editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
 
 | Provider | Model | Role |
 |---|---|---|
-| Kimi | `kimi-k3` | flagship (**default**); 1M ctx; always-on reasoning |
+| Kimi | `kimi-k3.1-pro` | flagship (**default**; released 2026-10-23, a post-trained K3 at two thirds of its price); 1M ctx; always-on reasoning |
+| Kimi | `kimi-k3` | the previous default; 1M ctx; always-on reasoning |
 | OpenAI | `gpt-6-luna` | cheap tier (**default**); 1.05M ctx (its predecessor `gpt-5.6-luna` was tier-gated on some keys — see the flaky-401 section) |
 | OpenAI | `gpt-6-sol` | flagship; the in-depth pick; 1.05M ctx |
 | OpenAI | `gpt-6.1-sol` | successor to `gpt-6-sol` (2026-09-29), same price, 1.05M ctx; available but not yet the in-depth pick — see the naming traps below, and the root README's Cost section for why |
@@ -417,8 +420,13 @@ editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
 
 Naming traps (verified 2026-09-25 unless dated):
 
-- Kimi K3 has only the one id `kimi-k3`; do not send the K2.x `thinking`
-  parameter. `kimi-k2.7-code` is not a cheaper K3 for reviews: it has no
+- The K3 series is `kimi-k3`, `kimi-k3.1-pro` and `kimi-k3.1-pro-highspeed`
+  (2026-10-23, `GET /v1/models`); a request for bare `kimi-k3.1` is
+  `resource_not_found_error`. `-highspeed` is `kimi-k3.1-pro` at double the
+  input and output price (same cache-hit price; Moonshot's pricing page,
+  2026-10-23), 2–3x faster per Moonshot's K3.1 quickstart; one run on the
+  bake-off prompt took 44 s for $0.22. Do not send
+  the K2.x `thinking` parameter. `kimi-k2.7-code` is not a cheaper K3 for reviews: it has no
   `reasoning_effort` (it accepts the field and ignores it), and on a 121 KB
   branch diff it hit its output-token cap before any review text arrived
   (`output_cap`).
@@ -491,19 +499,23 @@ Naming traps (verified 2026-09-25 unless dated):
   nothing in build mode, which always resolves an effort; it means only that a
   hand-built z.AI body with the field absent is not gate-refused.
 
-### Kimi `kimi-k3` quirks
+### Kimi K3 quirks (`kimi-k3.1-pro`, `-highspeed`, `kimi-k3`)
 
 - **1M-token context** (1,048,576). `max_completion_tokens` defaults to 131072,
-  settable up to 1048576.
+  settable up to 1048576 (for the K3.1 ids, per Moonshot's K3.1 quickstart,
+  2026-10-23, which also gives the fixed sampling params below).
 - **Thinking is always on, and defaults to the *slowest* setting.**
-  `reasoning_effort` accepts `"low"`, `"high"`, and `"max"` — there is no
-  `"medium"` — and **the server default is `"max"`**. (Verified 2026-07-20 from
+  `/models` advertises `"low"`, `"high"`, and `"max"` for `reasoning_effort`
+  — no `"medium"` — and **the server default is `"max"`**. (Verified 2026-07-20 from
   `GET https://api.moonshot.ai/v1/models`, whose `kimi-k3` entry reports
   `reasoning_efforts: {valid_efforts: ["low","high","max"], default_effort: "max"}`;
-  unchanged on 2026-09-25.) Do not send the K2.x `thinking` parameter.
+  unchanged on 2026-09-25, and the same for both K3.1 ids on 2026-10-23.) The
+  API does not enforce that list: on 2026-10-23 `"medium"` and even `"bogus"`
+  returned 200 on all three ids, so a misspelled level fails silently rather
+  than with a 400. Do not send the K2.x `thinking` parameter.
 - **Always set `reasoning_effort` explicitly.** Omitting it is *not* neutral —
-  it silently buys a max-effort call. Measured on one identical 10.8 KB review
-  prompt (2026-07-20):
+  it silently buys a max-effort call. Measured on `kimi-k3` with one identical
+  10.8 KB review prompt (2026-07-20):
 
   | `reasoning_effort` | wall clock | reasoning tokens |
   |---|---|---|
@@ -515,7 +527,7 @@ Naming traps (verified 2026-09-25 unless dated):
   `high` unless `--effort` says otherwise (see "Model and effort resolution"
   above). This measurement is what the gate
   protects everyone else against — a legacy request.json (or any hand-built
-  body) for `kimi-k3` with no `reasoning_effort` field trips the gate's
+  body) for any K3 id with no `reasoning_effort` field trips the gate's
   unset-effort condition and is refused as a foreground call (see "Envelope,
   gate, and orphan cleanup" above).
 - **Fixed sampling params:** `temperature=1.0`, `top_p=0.95`, `n=1`,
@@ -523,7 +535,8 @@ Naming traps (verified 2026-09-25 unless dated):
   from the request (the standard request shape above already does).
 - **Cost:** the highest per-token price of the runner's defaults, and always reasoning, so
   slower and dearer than the flash tiers (prices: the skill README's model
-  table). Route quick or cheap checks elsewhere.
+  table; per review: the root README's Cost section). Route quick or cheap
+  checks elsewhere.
 
 ### `reasoning_effort`
 
@@ -536,7 +549,7 @@ are **not** uniform:
 
 | Backend | Accepted levels | Verified |
 |---|---|---|
-| Kimi `kimi-k3` | `low`, `high`, `max` — no `medium`; always reasons regardless | 2026-09-25, `GET /v1/models` |
+| Kimi `kimi-k3.1-pro`, `-highspeed`, `kimi-k3` | `low`, `high`, `max` per `/models`; always reasons regardless. Not enforced: `medium` and an invented level also return 200 | 2026-10-23, `GET /v1/models` and live probes |
 | OpenAI `gpt-6-sol`, `gpt-6-luna` | `none`, `low`, `medium`, `high`, `xhigh` — no `max` | 2026-09-25, the 400 names the set |
 | OpenAI `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh` — no `none`, no `max` | 2026-09-29, the 400 names the set (see the naming traps above for the endpoint this must be probed on) |
 | DeepSeek `deepseek-flash`, `deepseek-v4-pro` | `low`, `high`, `max` per `/models`; `medium` and `xhigh` also return 200 and carry `high`'s prompt overhead on `deepseek-v4-pro` | 2026-09-25 |
@@ -559,7 +572,7 @@ field absent gets, since build mode always resolves an effort. They differ
 enough to be the reason a shared default exists at all: OpenAI's docs give
 `medium` for `gpt-6-sol` (not wire-verified), and `gpt-6-luna`'s is
 unverified (OpenAI's `/models` reports no effort metadata); DeepSeek's is
-`high` (measured below); **`kimi-k3` defaults to `max`** server-side; z.AI's
+`high` (measured below); **the Kimi K3 ids default to `max`** server-side; z.AI's
 docs say `max` (not wire-verified); xAI's `/models` gives `low` for
 `grok-4.3` and `high` for `grok-4.7`; MiniMax's is unknown. So hand-build a body and you inherit
 whatever the vendor chose — always set `reasoning_effort` explicitly there.
@@ -576,7 +589,7 @@ wire, and `max` is a separate tier above it. `deepseek-flash` bills the same pro
 tokens at every level, so the wire gives no fingerprint there; its `/models`
 entry is the evidence. Both models are in `HIGH_EFFORT_BY_DEFAULT` on this
 basis, which makes the gate refuse an unset-effort hand-built body for them
-exactly as for `kimi-k3`.
+exactly as for the Kimi K3 ids.
 
 Reasoning volume does not rank the tiers: on `deepseek-v4-pro` (2026-08-22),
 `low` spanned 530–1,239 reasoning tokens across three runs and `high` spanned

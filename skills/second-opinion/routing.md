@@ -7,7 +7,7 @@ it picks a backend, and `/second-opinion:direct` reads it in the main session.
 
 | Backend | Requires | Alternatives to the runner's default |
 |---------|----------|--------------------------------------|
-| Kimi | `MOONSHOT_API_KEY` | (none — Moonshot documents `reasoning_effort` for `kimi-k3` only) |
+| Kimi | `MOONSHOT_API_KEY` | `kimi-k3.1-pro-highspeed`, when speed matters more than cost (faster and dearer; api-reference.md, naming traps). `kimi-k3`, the previous default, is slower and dearer |
 | Gemini | `GEMINI_API_KEY` | `gemini-4-argon` (Google's flagship; paid keys only, not the free tier). Use it with `--effort high`: in a 2026-10-23 test it then found the real bug in both runs, at about $0.22 a review, and missed it in all three runs without (root README, Cost) |
 | OpenAI | `OPENAI_API_KEY` | `gpt-6-sol` (in-depth review; the default `gpt-6-luna` is the quick and general-purpose check). `gpt-6.1-sol`, released 2026-09-29 at the same price, is also available but not yet the in-depth default — it missed the one real bug in a same-day bake-off (root README, Cost) |
 | DeepSeek | `DEEPSEEK_API_KEY` | (none) |
@@ -41,8 +41,8 @@ another backend.
 | Quick or general-purpose check (default) | OpenAI (runner default `gpt-6-luna`) |
 | In-depth review: the user asks for a thorough or in-depth review, or the target is a spec, design, implementation plan, whole-branch or pre-merge diff, completed implementation, or debugging that is stuck | OpenAI `--model gpt-6-sol`. For a second in-depth opinion, Kimi, and z.AI third — but for a spec or document, z.AI second and Kimi third (the maintainer's ranking). The default `high` covers depth; go higher only for the hardest problems (see Effort) |
 | Fast feedback | OpenAI (its default `gpt-6-luna`), then Gemini |
-| Cheap feedback | OpenAI (its default `gpt-6-luna`), DeepSeek, MiniMax, or xAI. xAI's default `grok-4.3` is cheap and fast, but check what it reports: in testing it asserted bugs that were not there. Kimi is neither fast nor cheap |
-| File-heavy or long documents | Any default (each takes ~1M tokens; past a threshold the price rises: `MiniMax-M3` doubles past 512k input tokens, xAI past 200k, and OpenAI's GPT-6 models bill 2x input and 1.5x output past 272k) |
+| Cheap feedback | OpenAI (its default `gpt-6-luna`), DeepSeek, MiniMax, or xAI. xAI's default `grok-4.3` is cheap and fast, but check what it reports: in testing it asserted bugs that were not there. Kimi is not a cheap check |
+| File-heavy or long documents | Any default (each takes ~1M tokens; past a threshold the price rises: xAI past 200k, and OpenAI's GPT-6 models bill 2x input and 1.5x output past 272k) |
 | Another independent opinion | Any unused family — different family, different blind spots |
 | No OpenAI/Kimi credits | Gemini (free tier) or DeepSeek (near-free) |
 
@@ -73,5 +73,5 @@ bug it otherwise missed. Higher than `high`
 (`xhigh` on OpenAI / xAI / MiniMax, `max` on kimi / DeepSeek / z.AI /
 MiniMax) is for genuinely hard problems and only where the backend offers
 it; gemini stops at `high`, and the runner refuses `xhigh`
-and `max` for it. Never use `medium` as a middle ground: kimi and z.AI
-reject it, and DeepSeek accepts it but does not document it.
+and `max` for it. Never use `medium` as a middle ground: z.AI rejects it,
+and kimi and DeepSeek return 200 for it but do not document it.

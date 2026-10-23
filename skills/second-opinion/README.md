@@ -91,7 +91,8 @@ whole review costs: the root README's [Cost](../../README.md#cost) section.
 
 | Backend | Model | Best for | $/M in / out | Notes |
 |---------|-------|----------|--------------|-------|
-| Kimi | `kimi-k3` (default) | Second in-depth opinion (third for specs and docs) | $3.00 / $15.00 | 1M ctx; always-on thinking; slow |
+| Kimi | `kimi-k3.1-pro` (default) | Second in-depth opinion (third for specs and docs) | $2.00 / $10.00 | 1M ctx; always-on thinking; released 2026-10-23 |
+| Kimi | `kimi-k3` | Previous default; slower and dearer | $3.00 / $15.00 | 1M ctx; always-on thinking |
 | OpenAI | `gpt-6-luna` (default) | Quick and general-purpose checks; first pick for a fast review | $0.10 / $0.50 up to 272k | 1.05M ctx; above 272k input tokens, 2x input and 1.5x output; its predecessor was tier-gated on some keys — if yours is refused, set `SECOND_OPINION_OPENAI_MODEL=gpt-6-sol` |
 | OpenAI | `gpt-6-sol` | In-depth review, first pick | $2.00 / $10.00 up to 272k | 1.05M ctx; above 272k, 2x input and 1.5x output |
 | OpenAI | `gpt-6.1-sol` | Same-price alternative to `gpt-6-sol`; not the default | $2.00 / $10.00 up to 272k | 1.05M ctx; above 272k, 2x input and 1.5x output; released 2026-09-29. Why it's not the default: root README's Cost section |
@@ -105,15 +106,15 @@ whole review costs: the root README's [Cost](../../README.md#cost) section.
 | Gemini | `gemini-3.8-flash` (default) | Fast review, second pick | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 | 1M ctx; free tier per Google's pricing page |
 | Gemini | `gemini-4-argon` | In-depth Gemini review, with `--effort high` | $2.00 / $10.00 until 2026-11-30, then $4.00 / $20.00 | 1M ctx; Google's flagship, GA 2026-10-13; paid keys only |
 
-Kimi has the highest per-token price of the defaults and is among the slowest
-(always reasoning); reserve it for in-depth work. For a quick or cheap check
+Kimi has the highest per-token price of the defaults and always reasons;
+reserve it for in-depth work. For a quick or cheap check
 use the OpenAI default (`gpt-6-luna`), DeepSeek's, MiniMax's or xAI's default.
 
 **Reasoning level.** Every backend but Gemini is asked for
 `reasoning_effort: high`, so each gets the same requested level whichever
 one you route to — `high` is the highest level all of them accept (`xhigh`
-and `max` are not offered everywhere, and `kimi-k3` and `glm-5.3` have no
-`medium`). Gemini decides its own thinking unless `--effort` names a level,
+and `max` are not offered everywhere, and `glm-5.3` has no `medium`).
+Gemini decides its own thinking unless `--effort` names a level,
 which it receives as its thinking level (`low`, `medium` or `high`). Pass `--effort low` for a quick check. Because `high` is a
 long-path level, a run that does not pass `--effort` must also pass `--long`;
 the skill's own launch command always does.

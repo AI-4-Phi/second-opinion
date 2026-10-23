@@ -53,7 +53,7 @@ conditions:
   * the serialized request body >= 32768 bytes, or
   * reasoning_effort is high / xhigh / max (gemini: thinkingLevel high), or
   * the model reasons at high or above when the request does not set
-    reasoning_effort (kimi-k3, which defaults to max; both deepseek models and
+    reasoning_effort (the kimi K3 ids, which default to max; both deepseek models and
     grok-4.7, which default to high) — such a request is wire-identical to the
     explicit high/xhigh/max the line above already blocks; kimi-k3 measured at
     ~460s for a 10 KB prompt vs ~90s at "low". Reachable in legacy mode only:
@@ -227,8 +227,9 @@ HIGH_EFFORTS = {"high", "xhigh", "max"}
 # when the level is spelled out. Keyed on that behavior, not on a level name:
 # kimi-k3's unset default is its top tier ("max"), DeepSeek's and grok-4.7's
 # are "high".
-# Positive evidence only, and it differs per model. kimi-k3: GET /v1/models
-# reports reasoning_efforts.default_effort == "max". DeepSeek: GET /models
+# Positive evidence only, and it differs per model. kimi-k3, kimi-k3.1-pro and
+# kimi-k3.1-pro-highspeed: GET /v1/models reports
+# reasoning_efforts.default_effort == "max" (K3.1 ids verified 2026-10-23). DeepSeek: GET /models
 # reports effort.default_level == "high" for both models (verified
 # 2026-09-25). deepseek-v4-pro also shows it on the wire: an omitted field
 # bills the same prompt tokens as "high" (90 on a one-line prompt), "low"
@@ -242,8 +243,8 @@ HIGH_EFFORTS = {"high", "xhigh", "max"}
 # reason. Membership follows behavior, not the
 # docs' model tables: deepseek-v4-pro and grok-4.7 stay although no table
 # recommends them, and grok-4.3 stays out (its /models default is "low").
-HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-flash",
-                          "grok-4.7"}
+HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "kimi-k3.1-pro", "kimi-k3.1-pro-highspeed",
+                          "deepseek-v4-pro", "deepseek-flash", "grok-4.7"}
 
 # --- build mode (0.2.0) ---
 # The runner assembles the request itself from a prompt file; the fork no
@@ -256,7 +257,7 @@ HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-flash",
 # without a release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build
 # mode only; legacy mode never reads env for its model.
 DEFAULT_MODELS = {
-    "kimi":     "kimi-k3",
+    "kimi":     "kimi-k3.1-pro",
     "openai":   "gpt-6-luna",
     "deepseek": "deepseek-flash",
     "xai":      "grok-4.3",
@@ -268,9 +269,8 @@ EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 # One reasoning level for every backend that has the parameter, so a review is
 # comparable across providers instead of landing wherever each vendor's own
 # default happens to sit. "high" is the highest level every backend accepts:
-# kimi-k3 and glm-5.3 have no "medium" (verified from moonshot's /v1/models and
-# z.AI error 1210 respectively), which rules the middle out, and xhigh/max are
-# not offered everywhere. Overridden per call by --effort; "low" is the
+# glm-5.3 has no "medium" (z.AI error 1210), which rules the middle out, and
+# xhigh/max are not offered everywhere. Overridden per call by --effort; "low" is the
 # quick-check opt-out. gemini is not injected (GEMINI_THINKING_LEVELS below).
 DEFAULT_EFFORT = "high"
 # gemini's own reasoning control, generationConfig.thinkingConfig.thinkingLevel,
@@ -560,11 +560,13 @@ def resolve_effort(provider, flag_value):
     through SECOND_OPINION_<PROVIDER>_MODEL too. If that model has no
     reasoning_effort, the provider may answer 400 (bad_request) or may accept
     the field and ignore it: kimi-k2.7-code returned 200 at every level
-    (2026-09-25) although Moonshot documents the parameter as K3-only.
+    (2026-09-25) although Moonshot documents the parameter for the K3 series only.
 
-    Per-provider tier validity is still not checked here (kimi-k3 and glm-5.3
-    have no "medium"), except gemini's xhigh/max above: the provider's 400 is
-    the authority, which keeps a decay-prone table out of the code. DEFAULT_EFFORT is chosen to be valid
+    Per-provider tier validity is still not checked here (glm-5.3 has no
+    "medium"), except gemini's xhigh/max above: the provider's 400, when it
+    sends one, is the authority, which keeps a decay-prone table out of the
+    code. Not every provider sends one: the Kimi K3 ids return 200 for an
+    invented level (2026-10-23). DEFAULT_EFFORT is chosen to be valid
     everywhere, so the default path never relies on that."""
     if flag_value is not None:
         effort = flag_value.lower()

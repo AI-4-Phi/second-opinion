@@ -103,6 +103,7 @@ thinking.
 | `gemini-4-argon` * | 3 | $0.09 | 20 s | 9 of 9 | 0 of 3 |
 | `glm-5.3` | 2 | $0.11–0.12 | 3.7 min | 5 of 6 | 0 of 2 |
 | `gpt-6-sol` | 2 | $0.11–0.12 | 1–2 min | 6 of 6 | 2 of 2 |
+| `kimi-k3.1-pro` * | 3 | $0.13–0.17 | 1.5–2.2 min | 9 of 9 | 1 of 3 |
 | `gemini-3.8-flash` | 1 | $0.14 | 1.2 min | 3 of 3 | 0 of 1 |
 | `gemini-3.8-flash --effort high` * | 4 | $0.17–0.23 | 4–6 min | 9 of 9 | 0 of 3 |
 | `gemini-4-argon --effort high` * | 2 | $0.21–0.23 | 2.2–2.4 min | 6 of 6 | 2 of 2 |
@@ -121,6 +122,9 @@ the [skill README's model table](skills/second-opinion/README.md#model-details).
 control rather than with the unmarked rows: `gpt-6-sol` found the real bug
 in 1 of 2 runs ($0.09–0.10); `MiniMax-M3` in its 1 run, plus a design gap no
 other run found ($0.05, 11 min); `gemini-3.8-flash` did not ($0.04, 20 s).
+On 2026-10-23 `kimi-k3` missed the real bug and one planted bug in both of
+its 2 runs ($0.28, 3.7–4.4 min), and one `kimi-k3.1-pro-highspeed` run
+found the planted bugs but not the real one ($0.22, 44 s).
 One of the four `gemini-3.8-flash --effort high` runs sent nothing for 30
 minutes and failed; the table counts the three that finished. Gemini costs
 without `--effort` count prompt and answer only, since neither model
@@ -133,13 +137,19 @@ What follows from these runs:
   of 2, at 30–50% more cost.
 - `MiniMax-M3.1-Flash` became MiniMax's default for cost and speed, not for
   proven better findings.
+- `kimi-k3.1-pro` replaced `kimi-k3` as Kimi's default: in the same-day
+  comparison it found at least as much at about half the cost and twice the
+  speed. On the real bug the two tie, counting `kimi-k3`'s September run.
+  Two of the three `kimi-k3.1-pro` runs repeated the "unquoted launch paths"
+  claim, which runs of several models made in September and which is not a
+  live problem; the two `kimi-k3` runs did not.
 - Gemini gets a thinking level only when `--effort` asks for one, and
   `gemini-4-argon --effort high` is the pick for an in-depth Gemini review.
 
 ## Updates
 
 Provider model lineups change faster than plugin releases. The shipped
-defaults are verified as of 2026-09; when a provider ships a new model, point
+defaults are verified as of 2026-10; when a provider ships a new model, point
 the skill at it with an env var instead of waiting for an update:
 
     export SECOND_OPINION_KIMI_MODEL=...      # likewise _GEMINI_, _OPENAI_,

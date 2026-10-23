@@ -112,11 +112,11 @@ class ResolveModelTests(HelperGuard):
             self.assertEqual(mod.resolve_model("kimi", "flag-model"),
                              "flag-model")
             self.assertEqual(mod.resolve_model("kimi", None), "env-model")
-        self.assertEqual(mod.resolve_model("kimi", None), "kimi-k3")
+        self.assertEqual(mod.resolve_model("kimi", None), "kimi-k3.1-pro")
 
     def test_whitespace_env_override_falls_through(self):
         with mock.patch.dict(os.environ, {"SECOND_OPINION_KIMI_MODEL": "  "}):
-            self.assertEqual(mod.resolve_model("kimi", None), "kimi-k3")
+            self.assertEqual(mod.resolve_model("kimi", None), "kimi-k3.1-pro")
 
     def test_env_var_name_is_uppercased_provider(self):
         with mock.patch.dict(os.environ,
@@ -127,7 +127,7 @@ class ResolveModelTests(HelperGuard):
         self.assertEqual(set(mod.DEFAULT_MODELS), set(mod.PROVIDERS))
         # the one pin of the whole table: a typo here would 400 every user
         self.assertEqual(mod.DEFAULT_MODELS, {
-            "kimi": "kimi-k3", "openai": "gpt-6-luna",
+            "kimi": "kimi-k3.1-pro", "openai": "gpt-6-luna",
             "deepseek": "deepseek-flash", "xai": "grok-4.3", "zai": "glm-5.3",
             "minimax": "MiniMax-M3.1-Flash", "gemini": "gemini-3.8-flash"})
 
@@ -306,7 +306,7 @@ class ModeShapeTests(_BuildFixture, unittest.TestCase):
         envelope = self.assert_usage(
             ["--long", "--prompt-file", self.prompt, "kimi", self.base],
             contains="MOONSHOT_API_KEY not set")
-        self.assertIn("kimi-k3", envelope["detail"])
+        self.assertIn(mod.DEFAULT_MODELS["kimi"], envelope["detail"])
 
     def test_malformed_shape_preserves_preseeded_envelope(self):
         seeded = json.dumps({"status": "completed", "chars": 1}) + "\n"
@@ -380,9 +380,9 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
     def test_default_model_with_injection(self):
         envelope, code = self.run_build()
         self.assertEqual(code, 0)
-        self.assertEqual(self.sent()["model"], "kimi-k3")
+        self.assertEqual(self.sent()["model"], mod.DEFAULT_MODELS["kimi"])
         self.assertEqual(self.sent()["reasoning_effort"], mod.DEFAULT_EFFORT)
-        self.assertEqual(envelope["model"], "kimi-k3")
+        self.assertEqual(envelope["model"], mod.DEFAULT_MODELS["kimi"])
 
     def test_deepseek_default_model_with_injection(self):
         envelope, code = self.run_build(provider="deepseek",
@@ -395,7 +395,7 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
         envelope, code = self.run_build(
             env_extra={"SECOND_OPINION_KIMI_MODEL": "   "})
         self.assertEqual(code, 0)
-        self.assertEqual(self.sent()["model"], "kimi-k3")
+        self.assertEqual(self.sent()["model"], mod.DEFAULT_MODELS["kimi"])
 
     def test_effort_case_lowered_in_body(self):
         envelope, code = self.run_build(["--effort", "LOW"])
@@ -426,7 +426,7 @@ class BuildResolutionThroughMainTests(_BuildFixture, unittest.TestCase):
             {"MOONSHOT_API_KEY": "k"})
         self.assertEqual(code, 2)
         self.assertIn("long-path request refused", envelope["detail"])
-        self.assertIn("kimi-k3", envelope["detail"])
+        self.assertIn(mod.DEFAULT_MODELS["kimi"], envelope["detail"])
 
     def test_explicit_high_effort_carried_with_long(self):
         envelope, code = self.run_build(["--effort", "max"])
@@ -540,7 +540,7 @@ class BodyShapeTests(_BuildFixture, unittest.TestCase):
         self.assertIs(body.pop("stream"), True)
         self.assertEqual(body.pop("stream_options"), {"include_usage": True})
         self.assertEqual(body, {
-            "model": "kimi-k3",
+            "model": mod.DEFAULT_MODELS["kimi"],
             "reasoning_effort": "low",
             "messages": [
                 {"role": "system", "content": mod.SYSTEM_PROMPT},
@@ -610,7 +610,7 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         with open(self.artifact) as f:
             artifact = json.load(f)
         self.assertNotIn("stream", artifact)
-        self.assertEqual(artifact["model"], "kimi-k3")
+        self.assertEqual(artifact["model"], mod.DEFAULT_MODELS["kimi"])
         self.assertEqual(artifact["reasoning_effort"], mod.DEFAULT_EFFORT)
 
     def test_stale_artifact_dropped_when_a_rerun_is_refused(self):
