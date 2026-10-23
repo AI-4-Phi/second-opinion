@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.6.0 — 2026-10
+
+- **Personal information is replaced before a request is sent.** The runner
+  scans every outgoing request, in both modes, keys and values, and replaces
+  the email addresses, phone, US social security and card numbers it
+  recognizes with numbered placeholders (`[REDACTED-EMAIL-1]`). No flag turns
+  it off. It always sends the re-serialized scanned object, so a duplicate
+  key in a hand-built `request.json` cannot hide a value, and a scan that
+  fails stops the run as a `usage_error` before anything is sent. The
+  envelope's new `redactions` field and one log line give counts, never
+  values. The patterns are narrow on purpose (calibrated on 33k local text
+  files: the hits were real addresses and phone numbers, plus crypto test
+  vectors); api-reference.md lists them and what they leave alone. Names and
+  postal addresses are beyond a regex, so both skills now tell the composing
+  session to replace those with placeholders, keeping cited authors and
+  public figures.
+- **`--effort` now reaches Gemini.** It used to be refused; now `low`,
+  `medium` or `high` is sent as
+  `generationConfig.thinkingConfig.thinkingLevel` (`xhigh` and `max` are
+  refused), and the gate treats `thinkingLevel: high` like
+  `reasoning_effort: high`. Without `--effort`, Gemini still decides for
+  itself. Measured on one 121 KB review (2026-10-23): unset, both current
+  Gemini models chose no thinking; at `high`, `gemini-4-argon` found a real
+  bug it otherwise missed, while `gemini-3.8-flash` cost 4–6 times more for
+  no gain and one of four runs stalled for 30 minutes. So no default level
+  is injected for Gemini.
+- **MiniMax's default is `MiniMax-M3.1-Flash`**, for cost and speed. On
+  the saved bake-off prompt it found all planted bugs in 3 runs and the real
+  one in 2, at about a quarter of `MiniMax-M3`'s cost and a fifth of its
+  time. `MiniMax-M3`'s single same-day run also found the real bug, plus a
+  design gap no other run found, so better findings are not shown; it stays
+  available with `--model MiniMax-M3`.
+- **Model docs refreshed (verified 2026-10-23).** `gemini-4-argon` is listed
+  as a Gemini alternative for in-depth reviews with `--effort high` (paid
+  keys only); OpenAI's GPT-6 surcharge above
+  272k input tokens is documented; every default was re-verified live.
+- Reviewed by gpt-6-sol and Kimi, then z.AI on the fixes.
+
 ## 0.5.1 — 2026-09
 
 - **A stream that closes without an end marker is `partial`, not

@@ -19,7 +19,8 @@ itself), and `run-request.py`, which both skills launch.
   replace it) or when a routing row names a non-default model (in-depth →
   `gpt-6-sol`).
 - One home per fact: the envelope statuses/exit codes, the gate's blocking
-  conditions, the reader rule, and the orphan-kill live in api-reference.md;
+  conditions, the reader rule, the orphan-kill and the PII redaction patterns
+  live in api-reference.md;
   backends, routing and effort in routing.md, which both skills read; the
   fork's SKILL.md keeps the fork's workflow, prompt construction and
   contract (PREPARED/FAILED). Don't duplicate.

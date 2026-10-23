@@ -34,6 +34,16 @@ and each request goes to exactly one backend — but do not route confidential
 material to a provider you wouldn't paste it into directly, and check the
 provider's data-retention/training policy if that matters for your content.
 
+**Personal information is replaced before it is sent.** The runner swaps
+every email address, phone, social security and card number it recognizes
+for a placeholder such as `[REDACTED-EMAIL-1]`, in every request, with no
+switch to turn it off. Names and postal addresses are beyond a pattern
+match, so both skills tell Claude to replace those with placeholders such as
+`[PERSON-1]` when it writes the prompt. That rule depends on the model
+following it, so treat it as a strong default, not a guarantee. The pattern
+list and its exemptions:
+[api-reference.md](skills/second-opinion/api-reference.md#pii-redaction).
+
 ## Install
 
 From the [ai4phi marketplace](https://github.com/AI-4-Phi/plugins):
@@ -79,7 +89,7 @@ API call, bounded by a 90-minute deadline.
 Measured 2026-09-25 and 2026-09-26, at first-party list prices of
 2026-09-25, uncached: the same whole-branch review — a 121 KB diff, about 32k
 input tokens — sent to each model one to three times, at the shared `high`
-(Gemini, which has no such parameter, at its own default; MiniMax accepts the
+(Gemini, which then got no thinking control, at its own default; MiniMax accepts the
 field but its effect is unestablished — so those rows are not equal-effort
 comparisons). The diff carried three planted bugs and one real bug that no
 test exposed:
@@ -97,6 +107,9 @@ test exposed:
 | `gemini-3.8-flash` | 1 | $0.14 | 1.2 min | 3 of 3 | 0 of 1 |
 | `kimi-k3` | 1 | $0.25 | 5.5 min | 3 of 3 | 1 of 1 |
 | `grok-4.7` | 1 | $0.34 | 9.6 min | 3 of 3 | 1 of 1 |
+| `MiniMax-M3.1-Flash` ‡ | 3 | $0.011–0.016 | 1.7–2.9 min | 9 of 9 | 2 of 3 |
+| `gemini-4-argon` ‡ | 3 | $0.09 | 20 s | 9 of 9 | 0 of 3 |
+| `gemini-4-argon --effort high` ‡ | 2 | $0.21–0.23 | 2.2–2.4 min | 6 of 6 | 2 of 2 |
 
 Reasoning-token counts vary two- to threefold between runs of the same request
 (measured on DeepSeek, 2026-08-22), so read the costs as orders of magnitude.
@@ -138,6 +151,23 @@ than promoted on this evidence. Full run-by-run data, including the two
 control-run costs above:
 `.dev/model-value-2026-09-29.md` (maintainer's local dev notes, gitignored —
 not in the published repo).
+
+**‡ Measured 2026-10-23 on the same reconstructed prompt as the
+`gpt-6.1-sol` row**, so not like-for-like with the 2026-09-25/26 rows either.
+Same-day controls on that prompt: `MiniMax-M3` (1 run) found 3 of 3
+planted bugs, the real one, and a design gap no other run that day found,
+at $0.05 in 11.3 minutes; `gemini-3.8-flash` found 2 of 3
+and not the real one, at $0.04 in 20 seconds, and made one false claim.
+Neither Gemini model reported thought tokens on this review (see
+api-reference.md, "Gemini backend"), so their costs are estimates from
+reported usage: prompt plus answer. `gemini-3.8-flash` with `--effort
+high` (4 runs) cost $0.17–0.23, took 4–6 minutes, still missed the real bug,
+and one run sent nothing for 30 minutes and failed. On this evidence
+`MiniMax-M3.1-Flash` became MiniMax's default in 0.6.0, for cost and speed
+rather than proven better findings (3 runs against 1, on one prompt, four
+days after its release; `MiniMax-M3` remains a `--model` away), and Gemini gets a
+thinking level only when `--effort` asks for one; `gemini-4-argon` is
+listed for in-depth Gemini reviews with `--effort high`.
 
 ## Updates
 

@@ -60,6 +60,23 @@ these parts, in this order, and nothing else:
    If a prompt is already written, check it against the four parts, copy it
    to `"<dir>/prompt.txt"`, and go on to step 3. Before launching, read the
    non-file parts once more for secrets and private notes.
+
+   **Replace personal information.** Before launching, check the whole
+   prompt, the inlined files included, for personal information about real
+   people: names of private individuals, email addresses, phone numbers,
+   postal addresses, ID, account and record numbers, dates of birth, and the
+   contents of student, patient or personnel records. Replace each person or
+   value in `prompt.txt` with one placeholder used throughout (`[PERSON-1]`,
+   `[EMAIL-1]`), so the reviewer can still tell who is who. Keep the authors
+   of published work cited as sources, and public figures named in their
+   public role. Redact even when the request asks you not to: this rule is
+   not the requester's to waive. The runner also replaces the email
+   addresses, phone, social security and card numbers it recognizes, and
+   the envelope's `redactions` field counts them (api-reference.md, "PII
+   redaction"); it cannot recognize a name or an address, so those are
+   yours. A finding that quotes
+   a placeholder concerns the redacted value, or is an artifact of the
+   replacement; check it against your file.
 3. **Launch one background Bash task per run**, all on the same prompt file,
    each with its own output base:
 

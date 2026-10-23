@@ -81,6 +81,7 @@ def run_main(argv, env=None):
 class _Handler(http.server.BaseHTTPRequestHandler):
     respond = None      # set per test: callable(handler)
     requests = None     # list collecting (path, parsed_body) per test
+    raw_bodies = None   # the same requests' bodies, as sent
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -90,6 +91,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             parsed = None
         type(self).requests.append((self.path, parsed))
+        type(self).raw_bodies.append(body)
         try:
             type(self).respond(self)
         except OSError:
@@ -358,6 +360,7 @@ class _RunnerFixture:
     def start_server(self, respond):
         _Handler.respond = staticmethod(respond)
         _Handler.requests = []
+        _Handler.raw_bodies = []
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
 

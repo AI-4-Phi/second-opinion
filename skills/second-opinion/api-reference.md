@@ -40,8 +40,7 @@ hand-driving legacy mode — with the old hand-built-body recipes retired (see
 `--model` → `SECOND_OPINION_<PROVIDER>_MODEL` (empty or whitespace-only counts
 as unset) → `DEFAULT_MODELS` in the runner — the authoritative home for
 per-provider defaults (`scripts/run-request.py`; every default verified
-2026-09-25, `grok-4.3` 2026-09-26, against the provider's `GET /models` and a
-live completion). Only `--prompt-file` runs resolve this way; legacy mode
+2026-10-23 against the provider's `GET /models` and a live completion). Only `--prompt-file` runs resolve this way; legacy mode
 never reads the env var.
 
 `--effort` takes `low`, `medium`, `high`, `xhigh`, or `max`, case-insensitive,
@@ -73,8 +72,12 @@ in the foreground unless it passes `--long` — because it genuinely is a
 long-path request. The sanctioned flow always passes `--long`; a direct caller
 who wants a foreground run passes `--effort low`.
 
-`--effort` on gemini is a usage_error, and nothing is injected for it either —
-gemini has no such API parameter.
+Gemini has no `reasoning_effort`, and nothing is injected for it. Since
+0.6.0 an explicit `--effort` goes into
+`generationConfig.thinkingConfig.thinkingLevel` instead, and only `low`,
+`medium` and `high` pass: `--effort xhigh` or `max` on gemini is a
+usage_error. The gate reads `thinkingLevel: high` like `reasoning_effort:
+high`. Why no default: see "Gemini backend" below.
 
 ## Env vars
 
@@ -240,6 +243,10 @@ for the on-disk states before a terminal outcome is reached).
 | `failed` | 1 | `provider`, `model`, `error_class`, `http_status`, `attempts`, `detail`, `raw_path`, `log_path` |
 | `usage_error` | 2 | `detail` — bad argument, missing file, unset key, **or a gate refusal**; no request was attempted |
 
+Any status also carries `redactions`, a `{type: count}` object, when the PII
+scan replaced something in the outgoing body (see "PII redaction" below). It
+is absent when nothing was replaced.
+
 **The gate.** A foreground tool call dies at 10 minutes and orphans the
 runner (it keeps running, and billing) if the request turns out to be too big
 or too slow, so the runner refuses to start one as a `usage_error` prefixed
@@ -271,6 +278,44 @@ a launcher that died without collecting the envelope, kill the process
 directly:
 
     kill "$(cat <output-base>-pid.txt)"
+
+### PII redaction
+
+The runner scans every outgoing request body, in both modes, and replaces
+each identifier it recognizes with a typed, numbered placeholder before
+anything is sent: `[REDACTED-EMAIL-1]`, `[REDACTED-EMAIL-2]`, …, the same
+value always getting the same number within a run. No flag turns this off.
+The scan walks the whole request object, keys and values, and the runner
+sends the re-serialized scanned object, never the bytes it read, so a
+duplicate key in a hand-built `request.json` cannot hide a value from the
+scan (the re-serialization also writes non-ASCII as `\u` escapes, which
+every provider reads the same). Build mode's `<base>-request.json` therefore holds the redacted body;
+the caller's legacy `request.json` and the prompt file are never rewritten.
+Not scanned: the URL, which carries only gemini's model id. If the scan
+raises, or two keys would redact to the same placeholder, the run is a
+`usage_error` (`PII redaction failed, nothing was sent (<exception
+type>)`): it fails closed. The envelope's `redactions` field and one log
+line give the number of replacements per type (two mentions of one address
+count 2), never the values. Numbering continues past any placeholder already
+in the body, so a second-round prompt that quotes round one's
+`[REDACTED-EMAIL-1]` gives a new address `[REDACTED-EMAIL-2]`.
+
+| Type | Placeholder | Recognized | Left alone |
+|---|---|---|---|
+| `email` | `[REDACTED-EMAIL-n]` | `local@domain.tld` | the reserved domains `example.com/.org/.net`, `.example`, `.test`, `.invalid`, `.localhost`; local parts `git`, `noreply`, `no-reply`; image names such as `icon@2x.png` (png, jpg, jpeg, gif, webp, svg, avif) |
+| `card` | `[REDACTED-CARD-n]` | 16 digits (4-4-4-4 with one separator, space or hyphen, used throughout; or unbroken) or Amex 15 (4-6-5 or unbroken), with a Visa, Mastercard (51–55, 2221–2720), Amex or Discover (6011, 644–649, 65) prefix and a valid Luhn check | timestamps (they start with 17, no card prefix), digits after `.` or `/` (decimals, DOIs); 13- and 19-digit cards and other groupings are not recognized |
+| `ssn` | `[REDACTED-SSN-n]` | `ddd-dd-dddd` | areas 000, 666 and 900–999; group 00; serial 0000 |
+| `phone` | `[REDACTED-PHONE-n]` | `(ddd) ddd-dddd`; `ddd-ddd-dddd` with one separator (`-`, `.` or space) used twice; either led by `+1` or `1`; `+1` and exactly ten digits (`+13155550142`); `+` country code, an optional `(0)`-style group, then groups split by one separator (space or hyphen) used throughout, 10–15 digits in all. A trailing `x89` extension stays | unseparated digit runs (Unix timestamps), mixed separators (page ranges, `+1 2026-10-23`), dotted groups after `+` (`+1 192.168.0.1`), numbers after `.` or `/`, national forms other than North American (`020 7946 0958`), unseparated E.164 outside North America, `(315) 5550142`. A version string shaped `ddd.ddd.dddd`, and a `+`-prefixed run of digit groups, are redacted |
+
+The patterns are narrow on purpose: a review target is full of numbers. On
+33,103 text files across the maintainer's local repositories (2026-10-23),
+the hits were real email addresses and phone numbers, plus a dozen
+Luhn-valid digit strings in cryptographic test vectors. So the guarantee is
+this pattern set, not "no personal information ever". Names, postal
+addresses and record contents are beyond a regex; both skills' prompt rules
+tell the composing session to replace those with placeholders, and say what
+to keep (authors of cited published work, public figures in their public
+role).
 
 ### Error classes
 
@@ -348,9 +393,9 @@ other backends do not need them here.
 
 ### Models
 
-Verified 2026-09-25 (`grok-4.3`: 2026-09-26; `gpt-6.1-sol`: 2026-09-29) — each id listed by the
+Verified 2026-10-23 — each id listed by the
 provider's `GET /models` and answered a live completion through the runner at
-the shared `high`. Prices live in the skill README's model table; measured
+the shared `high` (Gemini at its own thinking default). Prices live in the skill README's model table; measured
 per-review costs in the root README's Cost section. To change a backend's default without
 editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
 [routing.md](routing.md)). Gemini's models are in "Gemini backend" below.
@@ -361,12 +406,13 @@ editing the skill, set `SECOND_OPINION_<PROVIDER>_MODEL` (see
 | OpenAI | `gpt-6-luna` | cheap tier (**default**); 1.05M ctx (its predecessor `gpt-5.6-luna` was tier-gated on some keys — see the flaky-401 section) |
 | OpenAI | `gpt-6-sol` | flagship; the in-depth pick; 1.05M ctx |
 | OpenAI | `gpt-6.1-sol` | successor to `gpt-6-sol` (2026-09-29), same price, 1.05M ctx; available but not yet the in-depth pick — see the naming traps below, and the root README's Cost section for why |
-| DeepSeek | `deepseek-flash` | **default** (DeepSeek-V4.1-Flash); 1M ctx |
+| DeepSeek | `deepseek-flash` | **default** (DeepSeek-V4.1-Flash, the 2026-10-17 `-1017` snapshot per DeepSeek's news; the response's `model` field says only `deepseek-flash`); 1M ctx |
 | xAI | `grok-4.3` | **default**; 1M ctx |
 | xAI | `grok-4.7` | newer, dearer; 500k ctx |
 | z.AI | `glm-5.3` | **default**; 1M ctx |
 | z.AI | `glm-5.3-flash` | cheap tier; 1M ctx |
-| MiniMax | `MiniMax-M3` | **default**; 1M ctx; `<think>` quirk below |
+| MiniMax | `MiniMax-M3.1-Flash` | **default** since 0.6.0 (released 2026-10-19), half `MiniMax-M3`'s price; 1M ctx; reasoning arrives in `reasoning_content`, not as `<think>` in content (2026-10-23) |
+| MiniMax | `MiniMax-M3` | the previous default; 1M ctx; `<think>` quirk below |
 
 Naming traps (verified 2026-09-25 unless dated):
 
@@ -394,9 +440,14 @@ Naming traps (verified 2026-09-25 unless dated):
   here. Caught this way on 2026-09-29: an initial `/v1/responses` probe
   wrongly suggested OpenAI had newly added `max`.
 - DeepSeek retired `deepseek-v4-flash` on 2026-09-10. The id still answers,
-  but `deepseek-flash` serves it — the response's `model` field says so. The
+  but `deepseek-flash` serves it: a request for the old id comes back with
+  `model: deepseek-flash`. The
   older `deepseek-chat`/`deepseek-reasoner` aliases likewise resolve to the
   flash tier (verified 2026-08-22). Always name a current id.
+- OpenAI's GPT-6 model pages (`gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-luna`,
+  read 2026-10-23) price a prompt over 272k input tokens at 2x input and
+  1.5x output for the whole request. The listed prices hold only below
+  that.
 - `glm-5.3-prime` appears on aggregator listings but not on the z.AI endpoint:
   a completion returns 400, "Unknown Model".
 - Ignore xAI's `grok-4.20-*`, `grok-build-*` and `grok-imagine-*` entries.
@@ -414,9 +465,9 @@ Naming traps (verified 2026-09-25 unless dated):
   `stream_options`) and reason by default (usage shows `reasoning_tokens`) —
   re-confirmed for `glm-5.3` on 2026-08-20. Small-prompt wall clock: `glm-5.3`
   ~15 s (2026-08-20), `MiniMax-M3` ~5 s.
-- **MiniMax puts its chain of thought INSIDE `message.content`, wrapped in
+- **`MiniMax-M3` puts its chain of thought INSIDE `message.content`, wrapped in
   `<think>...</think>`** — not in the `reasoning_content` field other backends
-  use. The runner strips those blocks for `provider == "minimax"` (tags can
+  use. The default `MiniMax-M3.1-Flash` uses `reasoning_content` (2026-10-23). The runner strips those blocks for `provider == "minimax"` (tags can
   span SSE chunks, so it strips after the join and rewrites `-text.md`). A
   stream cut *inside* a think block therefore yields empty text, classified
   `empty`, not `partial` — correct, since no review had arrived yet. If the
@@ -479,10 +530,12 @@ Naming traps (verified 2026-09-25 unless dated):
 
 ### `reasoning_effort`
 
-Every backend but Gemini takes `"reasoning_effort"`, and the runner sends the
-same `DEFAULT_EFFORT` (`high`) to all of them unless `--effort` says otherwise
-(see "Model and effort resolution" above). Accepted levels, which are **not**
-uniform:
+Every backend but Gemini takes `"reasoning_effort"`, and the runner sends
+the same `DEFAULT_EFFORT` (`high`) to all of them unless `--effort` says
+otherwise (see "Model and effort resolution" above). Gemini gets an explicit
+`--effort` as `generationConfig.thinkingConfig.thinkingLevel`, and nothing
+when `--effort` is omitted. Accepted levels, which
+are **not** uniform:
 
 | Backend | Accepted levels | Verified |
 |---|---|---|
@@ -492,9 +545,10 @@ uniform:
 | DeepSeek `deepseek-flash`, `deepseek-v4-pro` | `low`, `high`, `max` per `/models`; `medium` and `xhigh` also return 200 and carry `high`'s prompt overhead on `deepseek-v4-pro` | 2026-09-25 |
 | z.AI `glm-5.3`, `-flash`, `-flashx` | `low`, `high`, `max` — no `medium`, no `xhigh` | 2026-08-23 and 2026-09-25, error 1210 names the set |
 | MiniMax `MiniMax-M3` | every level returns 200; effect unestablished | 2026-08-23 |
+| MiniMax `MiniMax-M3.1-Flash` (default) | `low`, `medium`, `high`, `xhigh`, `max` — `none` is a 400 ("requires adaptive thinking"); MiniMax's docs give `max` as its unset default (not wire-verified, so not in `HIGH_EFFORT_BY_DEFAULT`) | 2026-10-23, the 400 names the set |
 | xAI `grok-4.3` | `none`, `low`, `medium`, `high`, `xhigh` | 2026-09-25, `GET /v1/models`; `high` ran through the runner 2026-09-26 |
 | xAI `grok-4.7` | `low`, `medium`, `high`, `xhigh` — no `none`, no `max` | 2026-09-25, `GET /v1/models` and the 400 |
-| Gemini | none — no such parameter, and `--effort` is a usage_error | 2026-07 |
+| Gemini `gemini-3.8-flash`, `gemini-4-argon` | `thinkingLevel` `low`, `medium`, `high` — `xhigh` is a 400 and `minimal` "not supported for this model"; the runner refuses `xhigh`/`max` for gemini itself. Google's thinking page gives `medium` as the unset default for both (not wire-verified) | 2026-10-23, live probes |
 
 `low` and `high` are the levels every backend accepts; `high`, the higher,
 is the shared default. `none` exists at the API on some models, but `--effort`
@@ -566,11 +620,28 @@ Response text can span multiple `parts` (thinking models emit
 `thoughtSignature`-only parts), so extraction joins all `.text` parts — the
 runner does this.
 
-Model (verified 2026-09-25): `gemini-3.8-flash` (default; 1M ctx; free
-tier). It thinks by default: a 2026-09-25 run with no thinking control sent
-spent 27k thought tokens. The runner sends Gemini no thinking control, so
-the model thinks at its own default; Google
-documents `medium` for `gemini-3.8-flash` (not wire-verified). Avoid the `gemini-pro-latest` and
-`gemini-flash-latest` aliases: they move, so nothing can be verified against
+Models (verified 2026-10-23): `gemini-3.8-flash` (default; 1M ctx; free
+tier) and `gemini-4-argon` (Google's flagship, GA 2026-10-13; 1M ctx; paid
+keys only, so an override to it fails on a free-tier key). `/models` gives
+argon an output limit of 32,768 tokens where Google's model page says
+65,536; no run has reached either.
+
+Without `--effort` the runner sends Gemini no thinking control, so the
+model decides how much to think, and the amount varies widely. On
+2026-09-25 `gemini-3.8-flash` spent 27k thought tokens on a 121 KB diff
+review. On 2026-10-23 both models reported no thought tokens on a copy of
+that review rebuilt on 2026-09-29 (about 20 s each), while a small arithmetic prompt the same day drew
+4–5k (`gemini-3.8-flash`) and about 500 (`gemini-4-argon`). The same day, on
+that review: at `thinkingLevel: high`, `gemini-4-argon` (2 runs, 12–14k
+thought tokens, about 2.3 min, ~$0.22) found a real bug that it missed in
+all 3 runs without. `gemini-3.8-flash` at `high` (4 runs) cost 4–6 times
+more than unset, took 4–6 minutes, still missed that bug, and one run sent
+nothing for 30 minutes and failed as `timeout_budget`; at `medium` (2 runs)
+it cost 3 times more, for no gain either. Hence no default level for
+gemini: pass `--effort high` for depth, best on `gemini-4-argon`. One
+consequence: a gemini run without `--effort` passes the gate's effort check,
+although its own thinking can make it slow (the 27k-token run above).
+
+Avoid the `gemini-pro-latest` and `gemini-flash-latest` aliases: they move, so nothing can be verified against
 them. Do NOT use the `gemini` CLI — its OAuth route hits persistent 429
 capacity errors; the REST API with `GEMINI_API_KEY` works.

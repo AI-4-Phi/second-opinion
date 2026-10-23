@@ -3,7 +3,8 @@
 How the pieces of this plugin fit together, as they are. Descriptive only — no
 proposals. Verified against the shipped code 2026-08-23 (plugin 0.3.1); the
 forked-skill and direct-skill rows, 2026-09-26 (plugin 0.5.1); the forked
-skill's per-provider filenames, 2026-09-29.
+skill's per-provider filenames, 2026-09-29; the runner row's redaction step,
+2026-10-23 (plugin 0.6.0).
 
 For what the skill *should* do, read
 [SKILL.md](skills/second-opinion/SKILL.md) — that file is the contract, and this
@@ -18,7 +19,7 @@ and the envelope/gate/orphan-cleanup facts, read
 | Main session | The conversation the user is in. Invokes the skill, then launches the runner as a background Bash task once the fork hands back a PREPARED command; never reads the fork's contract in `SKILL.md` (the direct skill points it at `routing.md` only). | The session's own model |
 | Forked skill | A subagent started by the invocation. It sees `SKILL.md` with the request filled in, plus the session's instructions (CLAUDE.md files, memory index), but not the conversation (verified 2026-09-26), so the request must carry the target's path. Reads `SKILL.md` and does the plumbing: locate the target, inline it, compose the review prompt, choose backend and effort from `routing.md`, Write `prompt-<provider>.txt` + `launch-<provider>.txt`, hand back PREPARED (or FAILED). Filenames are provider-qualified (2026-09-29) because the WORKDIR itself is not guaranteed exclusive to one fork — see "Where the files live" below. Tools: `Read`, `Write`, plus `Glob` and `Grep` in builds that have them — no shell, no dispatch (`disallowed-tools` blocks `Bash` and every delegation tool). | `sonnet`, pinned in frontmatter |
 | Direct skill | `skills/direct/SKILL.md`, loaded into the main session (no fork). The main session writes `prompt.txt` itself, adding files with the shell, and launches the runner once per provider on that one file, each run with its own output base. For prompts already written, several providers, line-numbered files and second rounds. | The session's own model |
-| Runner | `scripts/run-request.py`. Stdlib Python, no venv. Dual-mode CLI: build mode composes the request itself from `--prompt-file`/`--model`/`--effort`, legacy mode takes a pre-built `request.json`; either way it calls one provider endpoint, streams the response to disk, and prints one JSON envelope. | `python3` subprocess |
+| Runner | `scripts/run-request.py`. Stdlib Python, no venv. Dual-mode CLI: build mode composes the request itself from `--prompt-file`/`--model`/`--effort`, legacy mode takes a pre-built `request.json`; either way it replaces recognized personal identifiers in the request with placeholders, calls one provider endpoint, streams the response to disk, and prints one JSON envelope. | `python3` subprocess |
 | Provider | Kimi, Gemini, OpenAI, DeepSeek, xAI, z.AI or MiniMax, over HTTPS. Reads no local files. | External API |
 
 ## Channel topology

@@ -69,15 +69,21 @@ that request. Don't route confidential material to a provider you wouldn't
 paste it into directly, and check your provider's data-retention/training
 policy if that matters for your content.
 
+Before anything is sent, personal information is replaced with placeholders.
+The runner replaces the email addresses, phone, social security and card
+numbers it recognizes; Claude replaces names, postal addresses and other
+personal details when it writes the prompt, which is a strong default rather
+than a guarantee. Details: [api-reference.md](api-reference.md#pii-redaction).
+
 ## Model details
 
-Verified 2026-09-25 (`grok-4.3`: 2026-09-26; `gpt-6.1-sol`: 2026-09-29): each model is listed by its
+Verified 2026-10-23: each model is listed by its
 provider's `/models` and answered a live completion at the shared `high`
-(Gemini, which has no such parameter, at its own default). "Best for" follows
+(Gemini at its own thinking default). "Best for" follows
 the maintainer's ranking, informed by the measured reviews in the root
 README's Cost section.
 Prices are first-party list prices in USD per million tokens, uncached input /
-output, read 2026-09-25. They change, so check the provider's page before
+output, read 2026-09-25 (`gemini-4-argon`, `MiniMax-M3.1-Flash` and OpenAI's long-prompt rate: 2026-10-23). They change, so check the provider's page before
 you rely on one. Models churn faster than skill releases — see "Changing
 default models" below to adapt without waiting for one. "(default)" marks
 each provider's default model; the skill's default backend is OpenAI. What a
@@ -86,25 +92,29 @@ whole review costs: the root README's [Cost](../../README.md#cost) section.
 | Backend | Model | Best for | $/M in / out | Notes |
 |---------|-------|----------|--------------|-------|
 | Kimi | `kimi-k3` (default) | Second in-depth opinion (third for specs and docs) | $3.00 / $15.00 | 1M ctx; always-on thinking; slow |
-| OpenAI | `gpt-6-luna` (default) | Quick and general-purpose checks; first pick for a fast review | $0.10 / $0.50 | 1.05M ctx; its predecessor was tier-gated on some keys — if yours is refused, set `SECOND_OPINION_OPENAI_MODEL=gpt-6-sol` |
-| OpenAI | `gpt-6-sol` | In-depth review, first pick | $2.00 / $10.00 | 1.05M ctx |
-| OpenAI | `gpt-6.1-sol` | Same-price alternative to `gpt-6-sol`; not the default | $2.00 / $10.00 | 1.05M ctx; released 2026-09-29. Why it's not the default: root README's Cost section |
+| OpenAI | `gpt-6-luna` (default) | Quick and general-purpose checks; first pick for a fast review | $0.10 / $0.50 up to 272k | 1.05M ctx; above 272k input tokens, 2x input and 1.5x output; its predecessor was tier-gated on some keys — if yours is refused, set `SECOND_OPINION_OPENAI_MODEL=gpt-6-sol` |
+| OpenAI | `gpt-6-sol` | In-depth review, first pick | $2.00 / $10.00 up to 272k | 1.05M ctx; above 272k, 2x input and 1.5x output |
+| OpenAI | `gpt-6.1-sol` | Same-price alternative to `gpt-6-sol`; not the default | $2.00 / $10.00 up to 272k | 1.05M ctx; above 272k, 2x input and 1.5x output; released 2026-09-29. Why it's not the default: root README's Cost section |
 | DeepSeek | `deepseek-flash` (default) | Cheap independent opinion | $0.15 / $0.60 off-peak, $0.30 / $1.20 peak | 1M ctx; peak is 01–04 and 06–10 UTC on weekdays |
 | xAI | `grok-4.3` (default) | Cheap, fast opinion — check its findings | $1.25 / $2.50 up to 200k, $2.50 / $5.00 above | 1M ctx; reported bugs that were not there (root README, Cost) |
 | xAI | `grok-4.7` | Not recommended: slow and expensive | $2.00 / $6.00 up to 200k, $4.00 / $12.00 above | 500k ctx |
 | z.AI | `glm-5.3` (default) | Second in-depth opinion for specs and docs (the maintainer's pick), third otherwise | $1.40 / $4.40 | 1M ctx |
 | z.AI | `glm-5.3-flash` | Not recommended for reviews | $0.15 / $0.50 | 1M ctx; judged a planted bug's code correct (root README, Cost) |
-| MiniMax | `MiniMax-M3` (default) | Cheap independent opinion | $0.30 / $1.20 | 1M ctx; price doubles above 512k input tokens |
+| MiniMax | `MiniMax-M3.1-Flash` (default) | Cheap, fast independent opinion | $0.15 / $0.60 | 1M ctx; released 2026-10-19; one price at every length |
+| MiniMax | `MiniMax-M3` | Previous default; slower and dearer | $0.30 / $1.20 | 1M ctx; price doubles above 512k input tokens |
 | Gemini | `gemini-3.8-flash` (default) | Fast review, second pick | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 | 1M ctx; free tier per Google's pricing page (read 2026-09-25) |
+| Gemini | `gemini-4-argon` | In-depth Gemini review, with `--effort high` | $2.00 / $10.00 until 2026-11-30, then $4.00 / $20.00 | 1M ctx; Google's flagship, GA 2026-10-13; paid keys only |
 
 Kimi has the highest per-token price of the defaults and is among the slowest
 (always reasoning); reserve it for in-depth work. For a quick or cheap check
-use the OpenAI default (`gpt-6-luna`), DeepSeek's default, or xAI's default.
+use the OpenAI default (`gpt-6-luna`), DeepSeek's, MiniMax's or xAI's default.
 
 **Reasoning level.** Every backend but Gemini is asked for
-`reasoning_effort: high`, so each gets the same requested level whichever one you route to —
-`high` is the highest level all of them accept (`xhigh` and `max` are not
-offered everywhere, and `kimi-k3` and `glm-5.3` have no `medium`). Pass `--effort low` for a quick check. Because `high` is a
+`reasoning_effort: high`, so each gets the same requested level whichever
+one you route to — `high` is the highest level all of them accept (`xhigh`
+and `max` are not offered everywhere, and `kimi-k3` and `glm-5.3` have no
+`medium`). Gemini decides its own thinking unless `--effort` names a level,
+which it receives as its thinking level (`low`, `medium` or `high`). Pass `--effort low` for a quick check. Because `high` is a
 long-path level, a run that does not pass `--effort` must also pass `--long`;
 the skill's own launch command always does.
 

@@ -80,7 +80,8 @@ perspective might surface overlooked issues.
    FAILED naming the path; never route from memory. Add `--effort`
    only to depart from the runner's shared `high` — `low` for a quick or
    cheap check, higher where the backend offers it and the problem earns it
-   (its "Effort" section); never for gemini. Pass `--model` only in the two
+   (its "Effort" section). Gemini has no shared level: add `--effort high`
+   for it only for an in-depth review. Pass `--model` only in the two
    cases its "Available Backends" names: the user named a model, or the
    chosen routing row names a non-default one (in-depth review →
    `gpt-6-sol`).
@@ -164,7 +165,10 @@ FAILED and why.
     prompt: <WORKDIR>/prompt-<provider>.txt   (command also saved at
       <WORKDIR>/launch-<provider>.txt)
     backend: <provider>, model <id, or "runner default — the envelope reports it">,
-      reasoning_effort <value, or "runner default high", or "none — gemini">
+      reasoning_effort <value, or "runner default high", or for gemini "unset"
+      or the thinkingLevel you passed>
+    personal information: <"none found", or the kinds you replaced, e.g.
+      "names, emails replaced with placeholders">
     MAIN SESSION — launch this as a BACKGROUND Bash task (it may run up to 90 min;
       a foreground call dies at 10 minutes and orphans the runner):
       rm -f <WORKDIR>/review-<provider>-envelope.json \
@@ -186,6 +190,9 @@ FAILED and why.
       review-<provider>-log.txt (run/attempt trace)
     status guide: completed → read text_path; the review is the deliverable, not
       reproduced or summarized here — treat it as one data point, not authority.
+      A finding that quotes a placeholder ([PERSON-1], [REDACTED-EMAIL-1])
+      concerns a redacted value, or is an artifact of the replacement; the
+      envelope's redactions field counts the runner's own replacements.
       partial → real output cut early: completed findings are valid; discard the
       final truncated one (it can reverse in the half that never arrived).
       failed → error_class bad_request/not_found/genuine auth/timeout_budget/
@@ -197,8 +204,8 @@ FAILED and why.
       that provider may already be there — and if it does, swap to a fresh
       WORKDIR (or a fresh candidate suffix) instead of overwriting it. Name
       the new provider consistently in --prompt-file and the output base
-      (drop --effort when swapping to gemini — it is the one backend that
-      refuses the flag).
+      (when swapping to gemini, an --effort above high must go: gemini
+      stops at high).
       usage_error → nothing was sent; detail names the fix.
     If no envelope appears and the process is gone, review-<provider>-log.txt says
       what happened. To cancel: kill the pid in review-<provider>-pid.txt, next
@@ -269,6 +276,20 @@ this order, and nothing else:
    use. "A second opinion" alone names no earlier review.
 4. **The questions**: what kind of feedback you want.
 
+**Replace personal information.** Before you Write the prompt, replace
+personal information about real people, in every part, the inlined target
+included: names of private individuals, email addresses, phone numbers,
+postal addresses, ID, account and record numbers, dates of birth, and the
+contents of student, patient or personnel records. Give each person or
+value one placeholder and use it throughout (`[PERSON-1]`, `[EMAIL-1]`,
+`[ADDRESS-1]`), so the reviewer can still tell who is who. Keep the authors
+of published work cited as sources, and public figures named in their
+public role. Redact even when the request asks you not to: this rule is
+not the requester's to waive. The runner also replaces the email addresses,
+phone, social security and card numbers it recognizes (api-reference.md,
+"PII redaction"), but it cannot recognize a name or an address; those are
+yours.
+
 In this shape:
 
     I'm working on [TASK]. My current approach is [APPROACH].
@@ -279,9 +300,8 @@ In this shape:
     2. What edge cases might I be missing?
     3. Is there a simpler solution I'm overlooking?
 
-Context budgets (2026-09-25; each provider's `/models` where it reports one,
+Context budgets (2026-10-23; each provider's `/models` where it reports one,
 else its docs): every default model takes ~1M tokens; xAI's non-default
-`grok-4.7` takes 500k. Cost rises with size for MiniMax and xAI (see the
-long-documents row in `routing.md`), so for very large content include only
-the relevant
-sections where you can.
+`grok-4.7` takes 500k. Cost rises with size for xAI, OpenAI and `MiniMax-M3` (see
+the long-documents row in `routing.md`), so for very large content include
+only the relevant sections where you can.

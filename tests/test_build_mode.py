@@ -129,7 +129,7 @@ class ResolveModelTests(HelperGuard):
         self.assertEqual(mod.DEFAULT_MODELS, {
             "kimi": "kimi-k3", "openai": "gpt-6-luna",
             "deepseek": "deepseek-flash", "xai": "grok-4.3", "zai": "glm-5.3",
-            "minimax": "MiniMax-M3", "gemini": "gemini-3.8-flash"})
+            "minimax": "MiniMax-M3.1-Flash", "gemini": "gemini-3.8-flash"})
 
 
 class ResolveEffortTests(HelperGuard):
@@ -142,10 +142,17 @@ class ResolveEffortTests(HelperGuard):
         self.assertEqual(code, 2)
         self.assertIn("low|medium|high|xhigh|max", envelope["detail"])
 
-    def test_gemini_refuses_effort(self):
-        _, envelope, code = call_helper(mod.resolve_effort, "gemini", "low")
-        self.assertEqual(code, 2)
-        self.assertIn("reasoning_effort", envelope["detail"])
+    def test_gemini_takes_its_thinking_levels(self):
+        for level in ("low", "MEDIUM", "high"):
+            self.assertEqual(mod.resolve_effort("gemini", level),
+                             level.lower())
+
+    def test_gemini_refuses_levels_past_high(self):
+        for level in ("xhigh", "max"):
+            _, envelope, code = call_helper(mod.resolve_effort, "gemini",
+                                            level)
+            self.assertEqual(code, 2)
+            self.assertIn("low|medium|high", envelope["detail"])
 
     def test_absent_effort_injects_the_default_everywhere(self):
         for provider in mod.PROVIDERS:
@@ -154,15 +161,15 @@ class ResolveEffortTests(HelperGuard):
             self.assertEqual(mod.resolve_effort(provider, None),
                              mod.DEFAULT_EFFORT, provider)
 
+    def test_gemini_absent_effort_stays_absent(self):
+        self.assertIsNone(mod.resolve_effort("gemini", None))
+
     def test_default_effort_is_valid_and_gate_blocking(self):
         # The one level every effort-capable backend accepts, and — being a
         # long-path level — one the gate refuses without --long by design.
         self.assertIn(mod.DEFAULT_EFFORT, mod.EFFORT_LEVELS)
         self.assertIn(mod.DEFAULT_EFFORT, mod.HIGH_EFFORTS)
 
-    def test_gemini_absent_effort_stays_absent(self):
-        self.assertIsNone(
-            mod.resolve_effort("gemini", None))
 
 
 class ReadPromptFileTests(HelperGuard):
@@ -222,6 +229,12 @@ class BuildRequestTests(HelperGuard):
         self.assertEqual(obj, {
             "systemInstruction": {"parts": [{"text": mod.SYSTEM_PROMPT}]},
             "contents": [{"parts": [{"text": "p"}]}]})
+
+    def test_gemini_effort_becomes_thinking_level(self):
+        obj = mod.build_request("gemini", "gemini-3.8-flash", "high", "p")
+        self.assertEqual(obj["generationConfig"],
+                         {"thinkingConfig": {"thinkingLevel": "high"}})
+        self.assertNotIn("reasoning_effort", obj)
 
     def test_system_prompt_is_the_documented_string(self):
         self.assertEqual(mod.SYSTEM_PROMPT,
@@ -446,17 +459,43 @@ class GeminiBuildTests(_BuildFixture, unittest.TestCase):
         env.update(env_extra or {})
         with self.patch_provider("gemini", self.gemini_url(url)):
             envelope, code = run_main(
-                list(extra_argv) + ["--prompt-file", prompt, "gemini",
-                                    self.base], env)
+                list(extra_argv) + ["--long", "--prompt-file", prompt,
+                                    "gemini", self.base], env)
         return envelope, code
 
-    def test_effort_refused(self):
+    def test_default_sends_no_thinking_control(self):
+        envelope, code = self.run_gemini()
+        self.assertEqual(code, 0)
+        self.assertNotIn("generationConfig", self.sent())
+
+    def test_explicit_high_sends_thinking_level_high(self):
+        envelope, code = self.run_gemini(["--effort", "high"])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.sent()["generationConfig"],
+                         {"thinkingConfig": {"thinkingLevel": "high"}})
+
+    def test_effort_low_sends_thinking_level_low_and_passes_gate(self):
+        url = self.start_server(lambda h: h.send_json(200, {
+            "candidates": [{"finishReason": "STOP",
+                            "content": {"parts": [{"text": "review"}]}}]}))
+        prompt = self.write_prompt()
+        with self.patch_provider("gemini", self.gemini_url(url)):
+            envelope, code = run_main(
+                ["--no-stream", "--prompt-file", prompt, "--effort", "low",
+                 "gemini", self.base], {"GEMINI_API_KEY": "k"})
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.sent()["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low")
+
+    def test_explicit_high_without_long_is_gate_refused(self):
         prompt = self.write_prompt()
         envelope, code = run_main(
-            ["--prompt-file", prompt, "--effort", "low", "gemini", self.base],
-            {"GEMINI_API_KEY": "k"})
+            ["--prompt-file", prompt, "--effort", "high", "gemini",
+             self.base], {"GEMINI_API_KEY": "k"})
         self.assertEqual(code, 2)
-        self.assertIn("reasoning_effort", envelope["detail"])
+        self.assertIn("thinkingLevel=high", envelope["detail"])
+        self.assertIn('set thinkingLevel to "low"', envelope["detail"])
 
     def test_url_carries_resolved_default_model(self):
         envelope, code = self.run_gemini()
@@ -482,7 +521,7 @@ class GeminiBuildTests(_BuildFixture, unittest.TestCase):
     def test_missing_key_names_resolved_model(self):
         prompt = self.write_prompt()
         envelope, code = run_main(
-            ["--prompt-file", prompt, "gemini", self.base])
+            ["--long", "--prompt-file", prompt, "gemini", self.base])
         self.assertEqual(code, 2)
         self.assertIn("GEMINI_API_KEY not set", envelope["detail"])
         self.assertIn("gemini-3.8-flash", envelope["detail"])
@@ -629,10 +668,10 @@ class RequestArtifactTests(_BuildFixture, unittest.TestCase):
         env = {"GEMINI_API_KEY": "k"}
         with self.patch_provider("gemini", tmpl):
             _e, code = run_main(
-                ["--prompt-file", prompt, "gemini", self.base], env)
+                ["--long", "--prompt-file", prompt, "gemini", self.base], env)
             self.assertEqual(code, 0)
             _e, code = run_main(
-                ["gemini", self.artifact, self.base,
+                ["--long", "gemini", self.artifact, self.base,
                  "gemini-3.8-flash"], env)
             self.assertEqual(code, 0)
         self.assertEqual(_Handler.requests[0][0], _Handler.requests[1][0])

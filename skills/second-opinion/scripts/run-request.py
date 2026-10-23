@@ -18,8 +18,9 @@ Usage (legacy mode — bring-your-own request body):
                else DEFAULT_MODELS). Legacy mode never reads that env var.
   --effort     build mode: low|medium|high|xhigh|max (case-insensitive).
                Omitted -> DEFAULT_EFFORT ("high") is injected for every
-               provider that has the parameter. Pass --effort low for a quick
-               check. gemini has no such parameter and refuses the flag.
+               provider but gemini. Pass --effort low for a quick check.
+               gemini gets an explicit level as its thinkingLevel and takes
+               only low|medium|high; omitted, it decides for itself.
   --long       acknowledge this is a long-path request (see "The gate" below)
   --no-stream  disable streaming (see "Streaming" below); rarely wanted
 
@@ -50,7 +51,7 @@ start a request that is too big or too slow for a foreground call unless
 conditions:
 
   * the serialized request body >= 32768 bytes, or
-  * reasoning_effort is high / xhigh / max, or
+  * reasoning_effort is high / xhigh / max (gemini: thinkingLevel high), or
   * the model reasons at high or above when the request does not set
     reasoning_effort (kimi-k3, which defaults to max; both deepseek models and
     grok-4.7, which default to high) — such a request is wire-identical to the
@@ -77,6 +78,8 @@ gets a typed result instead of parsing the log file:
   failed:      {"status":"failed","provider","model","error_class","http_status",
                 "attempts","detail","raw_path","log_path"}
   usage_error: {"status":"usage_error","detail"}
+Any of them also carries "redactions": {type: count} when the PII scan replaced
+something in the outgoing body (see "PII redaction" below).
 
 Exit codes: 0 = text extracted; 1 = failed after retries; 2 = usage/input error;
 3 = partial text on disk (the review was cut short but is readable).
@@ -178,6 +181,7 @@ import http.client
 import json
 import math
 import os
+import re
 import signal
 import ssl
 import sys
@@ -245,11 +249,9 @@ HIGH_EFFORT_BY_DEFAULT = {"kimi-k3", "deepseek-v4-pro", "deepseek-flash",
 # The runner assembles the request itself from a prompt file; the fork no
 # longer hand-builds request.json. Single authoritative home for per-provider
 # default models (SKILL.md keeps routing guidance and alternatives only).
-# Every default verified 2026-09-25 (grok-4.3: 2026-09-26) against the
-# provider's GET /models and by a live completion through this runner at the
-# shared "high" (gemini: at its own thinking default, having no such
-# parameter). openai's default is the quick-check tier; SKILL.md routes
-# in-depth reviews to gpt-6-sol with an explicit --model (gpt-6.1-sol,
+# Every default verified 2026-10-23 against the provider's GET /models and by
+# a live completion through this runner at the shared "high". openai's default
+# is the quick-check tier; routing.md routes in-depth reviews to gpt-6-sol with an explicit --model (gpt-6.1-sol,
 # verified 2026-09-29, is a same-price alternative — see routing.md). Override
 # without a release via SECOND_OPINION_<PROVIDER>_MODEL — read here, in build
 # mode only; legacy mode never reads env for its model.
@@ -259,18 +261,180 @@ DEFAULT_MODELS = {
     "deepseek": "deepseek-flash",
     "xai":      "grok-4.3",
     "zai":      "glm-5.3",
-    "minimax":  "MiniMax-M3",
+    "minimax":  "MiniMax-M3.1-Flash",
     "gemini":   "gemini-3.8-flash",
 }
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 # One reasoning level for every backend that has the parameter, so a review is
 # comparable across providers instead of landing wherever each vendor's own
-# default happens to sit. "high" is the highest level every backend accepts: kimi-k3
-# and glm-5.3 have no "medium" (verified from moonshot's /v1/models and z.AI
-# error 1210 respectively), which rules the middle out, and xhigh/max are not
-# offered everywhere. Overridden per call by --effort; "low" is the quick-check
-# opt-out, and gemini is the one provider it never reaches — no such parameter.
+# default happens to sit. "high" is the highest level every backend accepts:
+# kimi-k3 and glm-5.3 have no "medium" (verified from moonshot's /v1/models and
+# z.AI error 1210 respectively), which rules the middle out, and xhigh/max are
+# not offered everywhere. Overridden per call by --effort; "low" is the
+# quick-check opt-out. gemini is not injected (GEMINI_THINKING_LEVELS below).
 DEFAULT_EFFORT = "high"
+# gemini's own reasoning control, generationConfig.thinkingConfig.thinkingLevel,
+# sent since 0.6.0 when --effort asks for it, and only then. Measured on one
+# 121 KB review (2026-10-23): left unset, both current models chose no thinking
+# (~20 s); at "high", gemini-4-argon found a real bug it otherwise missed, but
+# gemini-3.8-flash, the default, cost 4-6x more for no gain and 1 of 4 runs
+# sent nothing for 30 minutes. So the default stays unset.
+GEMINI_THINKING_LEVELS = ("low", "medium", "high")
+
+# --- PII redaction (0.6.0) ---
+# Every outgoing body, in both modes, is scanned for identifiers a regex can
+# recognize with few false positives, and each match is replaced by a typed,
+# numbered placeholder before anything is sent: the same value always gets the
+# same number within a run, so a reviewer can still tell two addresses apart.
+# No flag turns it off. The scan walks the final request object, keys and
+# values, and the runner always sends the re-serialized scanned object, never
+# the bytes it read: a duplicate key in a hand-built request.json would
+# otherwise hide a value from json.loads but not from the wire. The patterns
+# are deliberately narrow, because review targets are full of numbers: a phone
+# number needs consistent separators (a bare 10-digit run is usually a Unix
+# timestamp), and a card number needs a card prefix and a valid Luhn check
+# (millisecond and microsecond timestamps start with "17", which no card prefix
+# does). Names, postal addresses and record contents are beyond any regex; both
+# skills' prompt rules cover those. Patterns, exemptions and the envelope field:
+# api-reference.md, "PII redaction".
+REDACTIONS = None  # type -> count for the current run; reset on entry to main()
+_EMAIL = re.compile(r"(?<![\w.+%-])([\w.+%-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
+# Reserved for documentation and testing (RFC 2606, RFC 6761), plus
+# icon@2x.png style image names.
+_EMAIL_EXEMPT_DOMAIN = re.compile(
+    r"(?:^|\.)(?:example\.(?:com|org|net)|example|test|invalid|localhost)$"
+    r"|^\d+x\.(?:png|jpe?g|gif|webp|svg|avif)$", re.IGNORECASE)
+# Role addresses, not people: ssh remotes (git@github.com) and no-reply senders.
+_EMAIL_EXEMPT_LOCAL = {"git", "noreply", "no-reply"}
+# North American (optionally led by "+1" or "1"), North American E.164
+# ("+1" and exactly ten digits: timestamps have 10, 13 or 16), then
+# international: "+", a country code, an optional "(0)"-style trunk group, then
+# groups split by one separator used throughout. A trailing "x89" extension
+# stays outside the match.
+_PHONE = re.compile(
+    r"(?<![\w./+-])(?:\+?1[-. ]?)?(?:\(\d{3}\) ?\d{3}[-. ]|\d{3}([-. ])\d{3}\1)\d{4}"
+    r"(?=x\d|(?![\w/:-]|\.\d))"
+    r"|(?<![\w./+-])\+1[2-9]\d{2}[2-9]\d{6}(?![\w/:.-])"
+    r"|(?<![\w./+-])\+\d{1,3}([ -])(?:\(\d{1,4}\) ?)?\d{1,6}(?:\2\d{1,6}){1,4}(?![\w/:.-])")
+_PLACEHOLDER = re.compile(r"\[REDACTED-([A-Z]+)-(\d+)\]")
+_SSN = re.compile(r"(?<![\w./-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\w/-])")
+_CARD = re.compile(
+    r"(?<![\w./-])(?:\d{4}([ -])\d{4}\1\d{4}\1\d{4}|\d{4}([ -])\d{6}\2\d{5}|\d{15,16})(?![\w/-])")
+# Visa, Mastercard (51-55, 2221-2720), Amex, Discover (6011, 644-649, 65).
+_CARD_PREFIX = re.compile(
+    r"^(?:4|5[1-5]|222[1-9]|22[3-9]\d|2[3-6]\d\d|27[01]\d|2720|3[47]|6011|64[4-9]|65)")
+
+
+def _luhn_ok(digits):
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0
+
+
+def _placeholder(state, kind, value):
+    """The numbered placeholder for value, counting the replacement. Numbers
+    continue past any placeholder already in the body (seeded by
+    redact_request), so a second-round prompt quoting round one's
+    [REDACTED-EMAIL-1] never gives a new value that same name."""
+    counts, seen = state
+    counts[kind] = counts.get(kind, 0) + 1
+    key = (kind, value)
+    if key not in seen:
+        seen[key] = 1 + max((n for (k, _), n in seen.items() if k == kind),
+                            default=0)
+    return "[REDACTED-%s-%d]" % (kind.upper(), seen[key])
+
+
+def _email_sub(state, m):
+    local, domain = m.group(1), m.group(2)
+    if local.lower() in _EMAIL_EXEMPT_LOCAL or _EMAIL_EXEMPT_DOMAIN.search(domain):
+        return m.group(0)
+    return _placeholder(state, "email", m.group(0).lower())
+
+
+def _phone_sub(state, m):
+    digits = re.sub(r"\D", "", m.group(0))
+    # The bound is part of the pattern, not a sanity check: "+1 2026-10-23"
+    # matches the international shape and is left alone only here.
+    if not 10 <= len(digits) <= 15:
+        return m.group(0)
+    return _placeholder(state, "phone", digits)
+
+
+def _ssn_sub(state, m):
+    return _placeholder(state, "ssn", m.group(0))
+
+
+def _card_sub(state, m):
+    digits = re.sub(r"[ -]", "", m.group(0))
+    if (len(digits) == 15) != digits.startswith(("34", "37")) \
+            or not _CARD_PREFIX.match(digits) or not _luhn_ok(digits):
+        return m.group(0)
+    return _placeholder(state, "card", digits)
+
+
+def redact_pii(text, state):
+    """Return text with every recognized identifier replaced by its
+    placeholder. state is (counts, seen): counts[type] gains one per
+    replacement; seen numbers the distinct values. No overlap between the
+    shapes is known; cards and SSNs run before phones only as a precaution,
+    the phone shape being the loosest."""
+    for pattern, sub in ((_EMAIL, _email_sub), (_CARD, _card_sub),
+                         (_SSN, _ssn_sub), (_PHONE, _phone_sub)):
+        text = pattern.sub(lambda m, sub=sub: sub(state, m), text)
+    return text
+
+
+def redact_obj(obj, state):
+    """redact_pii over every string of a parsed JSON body, keys included. Two
+    keys that redact to the same placeholder would silently merge, so that
+    raises instead, and the caller fails closed."""
+    if isinstance(obj, str):
+        return redact_pii(obj, state)
+    if isinstance(obj, list):
+        return [redact_obj(v, state) for v in obj]
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            rk = redact_pii(k, state)
+            if rk in out:
+                raise ValueError("two keys redact to the same placeholder")
+            out[rk] = redact_obj(v, state)
+        return out
+    return obj
+
+
+def _seed_existing(obj, seen):
+    """Reserve the numbers of placeholders already present in obj."""
+    if isinstance(obj, str):
+        for m in _PLACEHOLDER.finditer(obj):
+            seen[(m.group(1).lower(), ("existing", m.group(2)))] = int(m.group(2))
+    elif isinstance(obj, list):
+        for v in obj:
+            _seed_existing(v, seen)
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            _seed_existing(k, seen)
+            _seed_existing(v, seen)
+
+
+def redact_request(request_obj):
+    """Scan the whole request object; return (scanned object, counts). Any
+    failure of the scan is a usage_error, so an unscanned body is never sent.
+    The detail names the exception type only: its message could quote input."""
+    counts, seen = {}, {}
+    try:
+        _seed_existing(request_obj, seen)
+        return redact_obj(request_obj, (counts, seen)), counts
+    except Exception as e:  # noqa: BLE001 - fail closed
+        usage_error("PII redaction failed, nothing was sent (%s)"
+                    % type(e).__name__)
+
+
 SYSTEM_PROMPT = ("You are an expert reviewer providing a second opinion. "
                  "Be specific, cite evidence, and explain your reasoning.")
 
@@ -318,6 +482,8 @@ def emit(envelope, exit_code):
     escaping here would reach the catch-all in cli(), which would call emit()
     again and overwrite a truthful envelope on disk with a false "internal" one.
     """
+    if REDACTIONS:
+        envelope.setdefault("redactions", dict(REDACTIONS))
     payload = json.dumps(envelope) + "\n"
     persisted = write_envelope_file(ENVELOPE_PATH, payload)
     try:
@@ -381,8 +547,12 @@ def resolve_model(provider, flag_value):
 
 def resolve_effort(provider, flag_value):
     """Explicit --effort wins (validated case-insensitively, lowercased into
-    the body). Absent: DEFAULT_EFFORT for every provider but gemini, which has
-    no such parameter.
+    the body). Absent: DEFAULT_EFFORT for every provider but gemini, which
+    then gets no thinking control and decides for itself. gemini has no
+    reasoning_effort; build_request sends an explicit level as its
+    thinkingLevel, which takes only low|medium|high (verified 2026-10-23:
+    "xhigh" is a 400), so xhigh/max are refused here for gemini rather than
+    sent to fail. Why gemini gets no default: GEMINI_THINKING_LEVELS.
 
     Provider-keyed, deliberately — the model is not even a parameter here. The
     earlier rule was model-keyed because the injection was a *protection*
@@ -400,13 +570,13 @@ def resolve_effort(provider, flag_value):
     decay-prone table out of the code. DEFAULT_EFFORT is chosen to be valid
     everywhere, so the default path never relies on that."""
     if flag_value is not None:
-        if provider == "gemini":
-            usage_error("gemini has no reasoning_effort parameter — omit "
-                        "--effort")
         effort = flag_value.lower()
         if effort not in EFFORT_LEVELS:
             usage_error("--effort must be one of %s (got %r)"
                         % ("|".join(EFFORT_LEVELS), flag_value))
+        if provider == "gemini" and effort not in GEMINI_THINKING_LEVELS:
+            usage_error("gemini's thinkingLevel takes %s (got %r)"
+                        % ("|".join(GEMINI_THINKING_LEVELS), flag_value))
         return effort
     if provider == "gemini":
         return None
@@ -432,8 +602,11 @@ def read_prompt_file(path):
 def build_request(provider, model, effort, prompt):
     """Field-for-field what the 0.1.x documented jq template produced."""
     if provider == "gemini":
-        return {"systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": [{"parts": [{"text": prompt}]}]}
+        obj = {"systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+               "contents": [{"parts": [{"text": prompt}]}]}
+        if effort is not None:
+            obj["generationConfig"] = {"thinkingConfig": {"thinkingLevel": effort}}
+        return obj
     obj = {"model": model}
     if effort is not None:
         obj["reasoning_effort"] = effort
@@ -455,8 +628,13 @@ def gate_reasons(request_obj, size):
         reasons.append(("size", "request body is %d bytes (>= %d)" % (size, GATE_BYTES)))
     model = request_obj.get("model") or ""
     effort = request_obj.get("reasoning_effort")
+    thinking = request_obj.get("generationConfig")
+    thinking = thinking.get("thinkingConfig") if isinstance(thinking, dict) else None
+    level = thinking.get("thinkingLevel") if isinstance(thinking, dict) else None
     if isinstance(effort, str) and effort.lower() in HIGH_EFFORTS:
         reasons.append(("effort", "reasoning_effort=%s" % effort))
+    elif isinstance(level, str) and level.lower() in HIGH_EFFORTS:
+        reasons.append(("effort", "thinkingLevel=%s" % level))
     elif effort is None and model in HIGH_EFFORT_BY_DEFAULT:
         reasons.append(("effort", "%s reasons at high or above server-side and "
                                   "the request does not set reasoning_effort"
@@ -472,7 +650,10 @@ def strip_think(text):
     interleaves it INSIDE message content wrapped in <think> tags (verified
     2026-07-23 on MiniMax-M3). It is reasoning, not review — remove it. An
     unterminated block (stream cut mid-thought) drops the rest: everything
-    after <think> is reasoning too.
+    after <think> is reasoning too. MiniMax-M3.1-Flash, the default since
+    0.6.0, sends its reasoning in reasoning_content instead (no <think> in
+    content on 2026-10-23, streamed or not), so this is a no-op for it and
+    stays for MiniMax-M3.
     """
     out, i = [], 0
     while True:
@@ -691,8 +872,9 @@ def backoff(attempt, retry_after, logline, deadline_ts):
 
 
 def main():
-    global ENVELOPE_PATH
+    global ENVELOPE_PATH, REDACTIONS
     ENVELOPE_PATH = None  # never inherit a previous in-process run's path
+    REDACTIONS = None
     opts, args = parse_args(sys.argv[1:])
     long_ok = opts.get("--long", False)
     stream = not opts.get("--no-stream", False)
@@ -780,7 +962,6 @@ def main():
         request_obj = build_request(provider, model, effort, prompt)
         if provider == "gemini":
             gemini_model = model
-        body = json.dumps(request_obj).encode()
     else:
         if not os.path.isfile(request_path) or os.path.getsize(request_path) == 0:
             usage_error("request file missing or empty: " + request_path)
@@ -796,6 +977,11 @@ def main():
             usage_error("request file must contain a JSON object, got %s"
                         % type(request_obj).__name__)
 
+    # Both modes: scan the final request object and send only its
+    # re-serialization (see "PII redaction" above).
+    request_obj, REDACTIONS = redact_request(request_obj)
+    body = json.dumps(request_obj).encode()
+
     request_bytes = len(body)  # gate size, before any stream fields are injected
     blocked = gate_reasons(request_obj, request_bytes)
     if blocked and not long_ok:
@@ -804,7 +990,10 @@ def main():
         if "size" in kinds:
             remedies.append("trim the prompt below %d bytes" % GATE_BYTES)
         if "effort" in kinds:
-            remedies.append('set reasoning_effort to "low"')
+            remedies.append('set %s to "low"' % (
+                "thinkingLevel" if any(text.startswith("thinkingLevel=")
+                                       for _, text in blocked)
+                else "reasoning_effort"))
         origin = (" (provider %s, model %s)" % (provider, model)) if build else ""
         usage_error(
             "long-path request refused: %s. A request this large or this slow "
@@ -903,6 +1092,9 @@ def main():
              max_attempts, "idle_timeout" if stream else "max_time", max_time,
              " deadline=%gs" % deadline if deadline is not None else "",
              (" [--long]" if long_ok else "") + ("" if stream else " [--no-stream]")))
+    if REDACTIONS:
+        logline("redacted before sending: %s" % ", ".join(
+            "%s=%d" % kv for kv in sorted(REDACTIONS.items())))
 
     ctx = ssl.create_default_context()
     last = {"error_class": "unknown", "http_status": None, "detail": "no attempt made"}
