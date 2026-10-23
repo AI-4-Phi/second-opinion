@@ -83,7 +83,7 @@ provider's `/models` and answered a live completion at the shared `high`
 the maintainer's ranking, informed by the measured reviews in the root
 README's Cost section.
 Prices are first-party list prices in USD per million tokens, uncached input /
-output, read 2026-09-25 (`gemini-4-argon`, `MiniMax-M3.1-Flash` and OpenAI's long-prompt rate: 2026-10-23). They change, so check the provider's page before
+output, read 2026-10-23. They change, so check the provider's page before
 you rely on one. Models churn faster than skill releases — see "Changing
 default models" below to adapt without waiting for one. "(default)" marks
 each provider's default model; the skill's default backend is OpenAI. What a
@@ -102,7 +102,7 @@ whole review costs: the root README's [Cost](../../README.md#cost) section.
 | z.AI | `glm-5.3-flash` | Not recommended for reviews | $0.15 / $0.50 | 1M ctx; judged a planted bug's code correct (root README, Cost) |
 | MiniMax | `MiniMax-M3.1-Flash` (default) | Cheap, fast independent opinion | $0.15 / $0.60 | 1M ctx; released 2026-10-19; one price at every length |
 | MiniMax | `MiniMax-M3` | Previous default; slower and dearer | $0.30 / $1.20 | 1M ctx; price doubles above 512k input tokens |
-| Gemini | `gemini-3.8-flash` (default) | Fast review, second pick | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 | 1M ctx; free tier per Google's pricing page (read 2026-09-25) |
+| Gemini | `gemini-3.8-flash` (default) | Fast review, second pick | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 | 1M ctx; free tier per Google's pricing page |
 | Gemini | `gemini-4-argon` | In-depth Gemini review, with `--effort high` | $2.00 / $10.00 until 2026-11-30, then $4.00 / $20.00 | 1M ctx; Google's flagship, GA 2026-10-13; paid keys only |
 
 Kimi has the highest per-token price of the defaults and is among the slowest

@@ -274,11 +274,8 @@ EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 # quick-check opt-out. gemini is not injected (GEMINI_THINKING_LEVELS below).
 DEFAULT_EFFORT = "high"
 # gemini's own reasoning control, generationConfig.thinkingConfig.thinkingLevel,
-# sent since 0.6.0 when --effort asks for it, and only then. Measured on one
-# 121 KB review (2026-10-23): left unset, both current models chose no thinking
-# (~20 s); at "high", gemini-4-argon found a real bug it otherwise missed, but
-# gemini-3.8-flash, the default, cost 4-6x more for no gain and 1 of 4 runs
-# sent nothing for 30 minutes. So the default stays unset.
+# sent only when --effort asks for it. Why there is no default: api-reference.md,
+# "Gemini backend".
 GEMINI_THINKING_LEVELS = ("low", "medium", "high")
 
 # --- PII redaction (0.6.0) ---
@@ -566,8 +563,8 @@ def resolve_effort(provider, flag_value):
     (2026-09-25) although Moonshot documents the parameter as K3-only.
 
     Per-provider tier validity is still not checked here (kimi-k3 and glm-5.3
-    have no "medium"): the provider's 400 is the authority, which keeps a
-    decay-prone table out of the code. DEFAULT_EFFORT is chosen to be valid
+    have no "medium"), except gemini's xhigh/max above: the provider's 400 is
+    the authority, which keeps a decay-prone table out of the code. DEFAULT_EFFORT is chosen to be valid
     everywhere, so the default path never relies on that."""
     if flag_value is not None:
         effort = flag_value.lower()

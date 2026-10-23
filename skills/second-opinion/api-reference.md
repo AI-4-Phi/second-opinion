@@ -47,7 +47,8 @@ never reads the env var.
 lowercased into the body before it is sent. Per-provider tier validity is
 **not** validated here — e.g. `kimi-k3` rejecting `"medium"` (see its quirks
 below) surfaces as the provider's own 400, classified `bad_request`, rather
-than as a decay-prone table baked into the runner.
+than as a decay-prone table baked into the runner. The exception is gemini,
+whose `xhigh`/`max` the runner refuses before sending.
 
 **Omitting `--effort` means `DEFAULT_EFFORT`, which is `"high"`.** Every
 provider that has the parameter gets the same level, so a review's depth is a
@@ -444,10 +445,6 @@ Naming traps (verified 2026-09-25 unless dated):
   `model: deepseek-flash`. The
   older `deepseek-chat`/`deepseek-reasoner` aliases likewise resolve to the
   flash tier (verified 2026-08-22). Always name a current id.
-- OpenAI's GPT-6 model pages (`gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-luna`,
-  read 2026-10-23) price a prompt over 272k input tokens at 2x input and
-  1.5x output for the whole request. The listed prices hold only below
-  that.
 - `glm-5.3-prime` appears on aggregator listings but not on the z.AI endpoint:
   a completion returns 400, "Unknown Model".
 - Ignore xAI's `grok-4.20-*`, `grok-build-*` and `grok-imagine-*` entries.
@@ -552,9 +549,10 @@ are **not** uniform:
 
 `low` and `high` are the levels every backend accepts; `high`, the higher,
 is the shared default. `none` exists at the API on some models, but `--effort`
-does not offer it. Per-provider
-validity is still not checked in code: an unaccepted level surfaces as the
-provider's own 400, classified `bad_request`.
+does not offer it. Per-provider validity is still not checked in code,
+except gemini's `xhigh`/`max`, which the runner refuses before sending: an
+unaccepted level surfaces as the provider's own 400, classified
+`bad_request`.
 
 **Where the vendor defaults sit** — which is what a *legacy* body with the
 field absent gets, since build mode always resolves an effort. They differ

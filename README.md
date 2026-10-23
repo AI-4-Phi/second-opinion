@@ -81,93 +81,60 @@ Code's settings (`env` in `settings.json`).
 
 ## Cost
 
-Each review is one API call to the chosen provider, billed to your key.
-Reasoning is billed as output, so a model's output price matters more than
-its input price. Every review runs as one background
-API call, bounded by a 90-minute deadline.
+Each review is one API call to the chosen provider, billed to your key and
+bounded by a 90-minute deadline. Reasoning is billed as output, so a model's
+output price matters more than its input price.
 
-Measured 2026-09-25 and 2026-09-26, at first-party list prices of
-2026-09-25, uncached: the same whole-branch review — a 121 KB diff, about 32k
-input tokens — sent to each model one to three times, at the shared `high`
-(Gemini, which then got no thinking control, at its own default; MiniMax accepts the
-field but its effect is unestablished — so those rows are not equal-effort
-comparisons). The diff carried three planted bugs and one real bug that no
-test exposed:
+Measured per review at first-party list prices, uncached, on one
+whole-branch review: a 121 KB diff, about 32k input tokens, with three
+planted bugs and one real bug that no test exposed. Every model ran at the
+shared `high`, except Gemini without `--effort`, which decides its own
+thinking.
 
 | Model | Runs | Cost | Time | Planted bugs found | Real bug found |
 |---|---|---|---|---|---|
 | `gpt-6-luna` | 3 | $0.01 | 1.3 min | 8 of 9 | 3 of 3 |
 | `glm-5.3-flash` | 2 | $0.01 | 4–5 min | 4 of 6 | 0 of 2 |
+| `MiniMax-M3.1-Flash` * | 3 | $0.01–0.02 | 1.7–2.9 min | 9 of 9 | 2 of 3 |
 | `deepseek-flash` | 3 | $0.03 off-peak ($0.06 peak) | 2–3 min | 9 of 9 | 1 of 3 |
 | `grok-4.3` | 3 | $0.03–0.05 | 1–1.5 min | 9 of 9 | 0 of 3 |
 | `MiniMax-M3` | 1 | $0.06 | 5.1 min | 3 of 3 | 0 of 1 |
-| `gpt-6.1-sol` † | 3 | $0.089–0.090 | under 1 min | 9 of 9 | 0 of 3 |
+| `gpt-6.1-sol` * | 3 | $0.09 | under 1 min | 9 of 9 | 0 of 3 |
+| `gemini-4-argon` * | 3 | $0.09 | 20 s | 9 of 9 | 0 of 3 |
 | `glm-5.3` | 2 | $0.11–0.12 | 3.7 min | 5 of 6 | 0 of 2 |
 | `gpt-6-sol` | 2 | $0.11–0.12 | 1–2 min | 6 of 6 | 2 of 2 |
 | `gemini-3.8-flash` | 1 | $0.14 | 1.2 min | 3 of 3 | 0 of 1 |
+| `gemini-3.8-flash --effort high` * | 4 | $0.17–0.23 | 4–6 min | 9 of 9 | 0 of 3 |
+| `gemini-4-argon --effort high` * | 2 | $0.21–0.23 | 2.2–2.4 min | 6 of 6 | 2 of 2 |
 | `kimi-k3` | 1 | $0.25 | 5.5 min | 3 of 3 | 1 of 1 |
 | `grok-4.7` | 1 | $0.34 | 9.6 min | 3 of 3 | 1 of 1 |
-| `MiniMax-M3.1-Flash` ‡ | 3 | $0.011–0.016 | 1.7–2.9 min | 9 of 9 | 2 of 3 |
-| `gemini-4-argon` ‡ | 3 | $0.09 | 20 s | 9 of 9 | 0 of 3 |
-| `gemini-4-argon --effort high` ‡ | 2 | $0.21–0.23 | 2.2–2.4 min | 6 of 6 | 2 of 2 |
 
-Reasoning-token counts vary two- to threefold between runs of the same request
-(measured on DeepSeek, 2026-08-22), so read the costs as orders of magnitude.
-Wrong claims matter as much as catches: `grok-4.3` asserted one nonexistent
-bug in each of its three runs, and `glm-5.3-flash` twice judged a planted
-bug's code correct; no other model made more than one minor wrong claim. One
-diff is not a benchmark. Per-token prices: the
-[skill README's model table](skills/second-opinion/README.md#model-details).
+Unmarked rows: 2026-09-25/26. Reasoning-token counts vary two- to
+threefold between runs of the same request, so read the costs as orders of
+magnitude. Wrong claims matter as much as catches: `grok-4.3` asserted one
+nonexistent bug in each of its three runs, and `glm-5.3-flash` twice judged
+a planted bug's code correct. One diff is not a benchmark. Per-token prices:
+the [skill README's model table](skills/second-opinion/README.md#model-details).
 
-**† `gpt-6.1-sol`, measured 2026-09-29 at the shared `high` unless noted, is
-not a like-for-like row with the ones above** — don't read its "0 of 3"
-against `gpt-6-sol`'s "2 of 2" as a direct comparison. It ran on a
-reconstructed copy of the same diff and brief; the original bake-off's
-prompt file was never saved, so it had to be rebuilt from a written summary
-(the prompt is now saved, so this won't recur). It was compared instead
-against a same-day, same-prompt `gpt-6-sol` control (2 more runs, cost
-$0.091 and $0.100, not shown as its own row): that control scored 5 of 6
-planted and 1 of 2 real-bug on the reconstruction, both short of
-`gpt-6-sol`'s original 6 of 6 and 2 of 2 above — so this reconstruction is a
-harder prompt to *catch bugs in* for `gpt-6-sol` than the original was, even
-though it costs less (a shorter reconstruction, most likely); whether it's
-also harder for `gpt-6.1-sol` is unknown, since `gpt-6.1-sol` never ran the
-original. On the identical reconstructed prompt at `high`, `gpt-6.1-sol`
-matched or beat the control on planted-bug recall and cost, and found the
-same real design gap (`--model` losing to an env override on an
-explicitly-named default model) in 2 of 3 runs against the control's 1 of
-2 — but at `high` it never found the one real, unplanted bug (a stale
-`-request.json` surviving a refused rerun) that the control caught once.
-Two further `gpt-6.1-sol` runs at `--effort xhigh` did catch that bug once
-(1 of 2, matching the control's `high`-effort rate) — but cost $0.117 and
-$0.135 to do it, 30–50% above the control's cost. So raising effort closes
-the gap, just not for free; at matched cost and effort, `gpt-6.1-sol` is 0
-for 3 on the one real bug in this dataset, which is also the strongest
-signal either model produced on a 3-vs-2 (or 5-vs-4, counting the xhigh
-runs) sample. **`gpt-6-sol` stays the in-depth default** (routing.md);
-`gpt-6.1-sol` is documented as an available, same-price alternative
-(`--model gpt-6.1-sol` or `SECOND_OPINION_OPENAI_MODEL=gpt-6.1-sol`) rather
-than promoted on this evidence. Full run-by-run data, including the two
-control-run costs above:
-`.dev/model-value-2026-09-29.md` (maintainer's local dev notes, gitignored —
-not in the published repo).
+\* Measured 2026-09-29 or 2026-10-23 on a rebuilt copy of the same diff
+(the original prompt was not saved), so compare each with its same-day
+control rather than with the unmarked rows: `gpt-6-sol` found the real bug
+in 1 of 2 runs ($0.09–0.10); `MiniMax-M3` in its 1 run, plus a design gap no
+other run found ($0.05, 11 min); `gemini-3.8-flash` did not ($0.04, 20 s).
+One of the four `gemini-3.8-flash --effort high` runs sent nothing for 30
+minutes and failed; the table counts the three that finished. Gemini costs
+without `--effort` count prompt and answer only, since neither model
+reported thought tokens.
 
-**‡ Measured 2026-10-23 on the same reconstructed prompt as the
-`gpt-6.1-sol` row**, so not like-for-like with the 2026-09-25/26 rows either.
-Same-day controls on that prompt: `MiniMax-M3` (1 run) found 3 of 3
-planted bugs, the real one, and a design gap no other run that day found,
-at $0.05 in 11.3 minutes; `gemini-3.8-flash` found 2 of 3
-and not the real one, at $0.04 in 20 seconds, and made one false claim.
-Neither Gemini model reported thought tokens on this review (see
-api-reference.md, "Gemini backend"), so their costs are estimates from
-reported usage: prompt plus answer. `gemini-3.8-flash` with `--effort
-high` (4 runs) cost $0.17–0.23, took 4–6 minutes, still missed the real bug,
-and one run sent nothing for 30 minutes and failed. On this evidence
-`MiniMax-M3.1-Flash` became MiniMax's default in 0.6.0, for cost and speed
-rather than proven better findings (3 runs against 1, on one prompt, four
-days after its release; `MiniMax-M3` remains a `--model` away), and Gemini gets a
-thinking level only when `--effort` asks for one; `gemini-4-argon` is
-listed for in-depth Gemini reviews with `--effort high`.
+What follows from these runs:
+
+- `gpt-6-sol` stays the in-depth default. `gpt-6.1-sol` missed the real bug
+  in all three runs at matched effort; at `--effort xhigh` it caught it in 1
+  of 2, at 30–50% more cost.
+- `MiniMax-M3.1-Flash` became MiniMax's default for cost and speed, not for
+  proven better findings.
+- Gemini gets a thinking level only when `--effort` asks for one, and
+  `gemini-4-argon --effort high` is the pick for an in-depth Gemini review.
 
 ## Updates
 
