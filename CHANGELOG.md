@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 — 2026-10
 
 - **Kimi's default is `kimi-k3.1-pro`** (released 2026-10-23; $2 / $10 per
   million tokens against `kimi-k3`'s $3 / $15). On the saved bake-off prompt,
